@@ -23,19 +23,40 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 class Config:
-    BOT_TOKEN = os.environ.get('BOT_TOKEN', '8615731945:AAF5ltmg_j_abBngVTSQnXa2MiVu7eweTTI')
-    BOT_USERNAME = os.environ.get('BOT_USERNAME', '@neXUSSBINGObot')
-    ADMIN_ID = int(os.environ.get('ADMIN_ID', '8461485965'))
-    DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite:///bingo.db')
-    SECRET_KEY = os.environ.get('SECRET_KEY', secrets.token_hex(32))
-    DEFAULT_HOUSE_CUT = float(os.environ.get('DEFAULT_HOUSE_CUT', '10.0'))
-    MAX_CARTELAS_PER_PLAYER = int(os.environ.get('MAX_CARTELAS_PER_PLAYER', '3'))
-    AUTO_FILL_BOT_COUNT = int(os.environ.get('AUTO_FILL_BOT_COUNT', '10'))
-    MIN_PLAYERS_TO_START = int(os.environ.get('MIN_PLAYERS_TO_START', '2'))
-    TOTAL_CARTELAS_IN_GAME = int(os.environ.get('TOTAL_CARTELAS_IN_GAME', '100'))
-    WEBAPP_URL = os.environ.get('WEBAPP_URL', 'https://yourdomain.com/')
-    WEBHOOK_URL = os.environ.get('WEBHOOK_URL', 'https://yourdomain.com/webhook')
-    WELCOME_BONUS = float(os.environ.get('WELCOME_BONUS', '25.0'))
+    # FIX: Strip whitespace from all environment variables
+    BOT_TOKEN = os.environ.get('8615731945:AAF5ltmg_j_abBngVTSQnXa2MiVu7eweTTI', '').strip()
+    BOT_USERNAME = os.environ.get('@neXUSSBINGObot', '').strip()
+    ADMIN_ID = int(os.environ.get('ADMIN_ID', '8461485965').strip())
+    DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite:///bingo.db').strip()
+    SECRET_KEY = os.environ.get('SECRET_KEY', secrets.token_hex(32)).strip()
+    DEFAULT_HOUSE_CUT = float(os.environ.get('DEFAULT_HOUSE_CUT', '10.0').strip())
+    MAX_CARTELAS_PER_PLAYER = int(os.environ.get('MAX_CARTELAS_PER_PLAYER', '3').strip())
+    AUTO_FILL_BOT_COUNT = int(os.environ.get('AUTO_FILL_BOT_COUNT', '10').strip())
+    MIN_PLAYERS_TO_START = int(os.environ.get('MIN_PLAYERS_TO_START', '2').strip())
+    TOTAL_CARTELAS_IN_GAME = int(os.environ.get('TOTAL_CARTELAS_IN_GAME', '100').strip())
+    
+    # FIX: Strip whitespace and ensure trailing slash for WEBAPP_URL
+    _raw_webapp_url = os.environ.get('WEBAPP_URL', 'https://yourdomain.com/').strip()
+    WEBAPP_URL = _raw_webapp_url if _raw_webapp_url.endswith('/') else _raw_webapp_url + '/'
+    
+    # FIX: Strip whitespace for WEBHOOK_URL
+    WEBHOOK_URL = os.environ.get('WEBHOOK_URL', 'https://yourdomain.com/webhook').strip()
+    
+    WELCOME_BONUS = float(os.environ.get('WELCOME_BONUS', '25.0').strip())
+
+    # Validation
+    @classmethod
+    def validate(cls):
+        errors = []
+        if not cls.BOT_TOKEN or cls.BOT_TOKEN == 'YOUR_BOT_TOKEN_HERE':
+            errors.append("BOT_TOKEN not set")
+        if not cls.WEBAPP_URL or 'yourdomain.com' in cls.WEBAPP_URL:
+            errors.append("WEBAPP_URL not properly configured")
+        if not cls.WEBHOOK_URL or 'yourdomain.com' in cls.WEBHOOK_URL:
+            errors.append("WEBHOOK_URL not properly configured")
+        if errors:
+            logger.error(f"Configuration errors: {errors}")
+        return errors
 
 app.config.from_object(Config)
 app.config['SQLALCHEMY_DATABASE_URI'] = Config.DATABASE_URL
@@ -44,6 +65,23 @@ app.config['SECRET_KEY'] = Config.SECRET_KEY
 
 CORS(app)
 db = SQLAlchemy(app)
+
+# [All models remain the same as previous fix - User, Room, RoomPlayer, Deposit, Withdrawal, Transaction, GameSettings, GameCall, Admin]
+
+class GameCall(db.Model):
+    __tablename__ = 'game_calls'
+    id = db.Column(db.Integer, primary_key=True)
+    room_id = db.Column(db.String(10), db.ForeignKey('rooms.id'), nullable=False)
+    call_number = db.Column(db.String(10), nullable=False)
+    number_value = db.Column(db.Integer)
+    called_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class Admin(db.Model):
+    __tablename__ = 'admins'
+    id = db.Column(db.Integer, primary_key=True)
+    telegram_id = db.Column(db.BigInteger, unique=True, nullable=False)
+    username = db.Column(db.String(100))
+    added_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class User(db.Model):
     __tablename__ = 'users'
@@ -302,7 +340,10 @@ def send_telegram_message(chat_id, text, parse_mode='HTML', reply_markup=None):
         if reply_markup:
             payload['reply_markup'] = json.dumps(reply_markup)
         response = requests.post(url, json=payload, timeout=10)
-        return response.json()
+        result = response.json()
+        if not result.get('ok'):
+            logger.error(f"Telegram API error: {result}")
+        return result
     except Exception as e:
         logger.error(f"Failed to send Telegram message: {e}")
         return None
@@ -409,18 +450,18 @@ def require_admin_auth(f):
             user_data = validate_telegram_init_data(auth_header)
             telegram_id = user_data.get('id')
             is_admin = telegram_id == Config.ADMIN_ID
+            
             if not is_admin:
-                from sqlalchemy import inspect
-                inspector = inspect(db.engine)
-                if 'admins' in inspector.get_table_names():
-                    admin_record = Admin.query.filter_by(telegram_id=telegram_id).first()
-                    is_admin = admin_record is not None
+                admin_record = Admin.query.filter_by(telegram_id=telegram_id).first()
+                is_admin = admin_record is not None
+                
             if not is_admin:
                 return jsonify({'error': 'Unauthorized - Admin only'}), 403
             request.telegram_user = user_data
             request.is_admin = True
             return f(*args, **kwargs)
         except Exception as e:
+            logger.error(f"Admin auth error: {e}")
             return jsonify({'error': 'Authentication failed'}), 401
     return decorated_function
 
@@ -838,7 +879,11 @@ PLAYER_HTML = '''<!DOCTYPE html>
         let speechSynthesis = window.speechSynthesis;
         let pollInterval = null;
 
-        if (tg) { tg.ready(); tg.expand(); }
+        if (tg) { 
+            tg.ready(); 
+            tg.expand();
+            tg.enableClosingConfirmation();
+        }
 
         function getHeaders() {
             let headers = {};
@@ -858,6 +903,9 @@ PLAYER_HTML = '''<!DOCTYPE html>
                     headers: { ...getHeaders(), 'Content-Type': 'application/json' }
                 });
                 const data = await response.json();
+                if (data.error) {
+                    throw new Error(data.error);
+                }
                 currentUser = data.user;
                 document.getElementById('balance').textContent = currentUser.balance.toLocaleString();
                 if (data.is_new_user) {
@@ -866,8 +914,14 @@ PLAYER_HTML = '''<!DOCTYPE html>
                 }
                 document.getElementById('loading-screen').classList.add('hidden');
                 document.getElementById('app-content').classList.remove('hidden');
+                
+                if (tg) {
+                    tg.setHeaderColor('#0f0a1e');
+                    tg.setBackgroundColor('#0f0a1e');
+                }
             } catch (error) {
-                document.querySelector('.loading-text').textContent = 'Error: ' + error.message;
+                console.error('Init error:', error);
+                setTimeout(() => location.reload(), 3000);
             }
         }
 
@@ -971,6 +1025,10 @@ PLAYER_HTML = '''<!DOCTYPE html>
                 try {
                     const response = await fetch(`/api/player/game/room/${currentRoom.room_id}/status`, { headers: getHeaders() });
                     const data = await response.json();
+                    if (data.error) {
+                        console.error('Poll error:', data.error);
+                        return;
+                    }
                     if (data.current_call && data.current_call !== document.getElementById('call-letter').textContent + document.getElementById('call-number').textContent) {
                         const letter = data.current_call.charAt(0);
                         const num = parseInt(data.current_call.slice(1));
@@ -1043,30 +1101,41 @@ ADMIN_HTML = '''<!DOCTYPE html>
         table { width: 100%; border-collapse: collapse; font-size: 14px; }
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.1); }
         th { color: #8b5cf6; }
+        .error { color: #ef4444; padding: 20px; text-align: center; }
+        .loading { text-align: center; padding: 40px; }
     </style>
 </head>
 <body>
     <h1>🔐 NEXUS BINGO Admin</h1>
     
-    <div class="card">
-        <h3>🏠 House Favor Mode</h3>
-        <div class="toggle">
-            <div>
-                <div style="font-weight: 600;">Enable House Favor</div>
-                <div style="font-size: 13px; color: #9ca3af;">Bots have higher chance to win</div>
+    <div id="loading" class="loading">Loading...</div>
+    <div id="error" class="error hidden"></div>
+    <div id="content" class="hidden">
+        <div class="card">
+            <h3>🏠 House Favor Mode</h3>
+            <div class="toggle">
+                <div>
+                    <div style="font-weight: 600;">Enable House Favor</div>
+                    <div style="font-size: 13px; color: #9ca3af;">Bots have higher chance to win</div>
+                </div>
+                <div class="toggle-switch" id="house-favor-toggle" onclick="toggleHouseFavor()"></div>
             </div>
-            <div class="toggle-switch" id="house-favor-toggle" onclick="toggleHouseFavor()"></div>
         </div>
-    </div>
 
-    <div class="card">
-        <h3>👥 Users</h3>
-        <table id="users-table"></table>
+        <div class="card">
+            <h3>👥 Users</h3>
+            <table id="users-table"></table>
+        </div>
     </div>
 
     <script>
         let tg = window.Telegram?.WebApp;
-        if (tg) { tg.ready(); tg.expand(); }
+        if (tg) { 
+            tg.ready(); 
+            tg.expand();
+            tg.setHeaderColor('#0f0a1e');
+            tg.setBackgroundColor('#0f0a1e');
+        }
         
         function getHeaders() {
             let headers = {};
@@ -1077,33 +1146,68 @@ ADMIN_HTML = '''<!DOCTYPE html>
             return headers;
         }
 
+        async function init() {
+            try {
+                const response = await fetch('/api/admin/users', { headers: getHeaders() });
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Unauthorized');
+                }
+                
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('content').classList.remove('hidden');
+                loadUsers();
+                loadSettings();
+            } catch (error) {
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('error').textContent = 'Error: ' + error.message;
+                document.getElementById('error').classList.remove('hidden');
+            }
+        }
+
+        async function loadSettings() {
+            const response = await fetch('/api/admin/settings/house-favor', { headers: getHeaders() });
+            if (response.ok) {
+                const data = await response.json();
+                document.getElementById('house-favor-toggle').classList.toggle('active', data.enabled);
+            }
+        }
+
         async function toggleHouseFavor() {
             const toggle = document.getElementById('house-favor-toggle');
             const enabled = !toggle.classList.contains('active');
-            await fetch('/api/admin/settings/house-favor', {
+            const response = await fetch('/api/admin/settings/house-favor', {
                 method: 'POST',
                 headers: { ...getHeaders(), 'Content-Type': 'application/json' },
                 body: JSON.stringify({ enabled })
             });
-            toggle.classList.toggle('active', enabled);
+            if (response.ok) {
+                toggle.classList.toggle('active', enabled);
+            } else {
+                alert('Failed to update setting');
+            }
         }
 
         async function loadUsers() {
-            const response = await fetch('/api/admin/users', { headers: getHeaders() });
-            const data = await response.json();
-            const table = document.getElementById('users-table');
-            table.innerHTML = '<tr><th>ID</th><th>Name</th><th>Balance</th><th>Actions</th></tr>';
-            data.users.forEach(u => {
-                table.innerHTML += `<tr>
-                    <td>${u.telegram_id}</td>
-                    <td>${u.first_name}</td>
-                    <td>${u.balance} ETB</td>
-                    <td>
-                        <button class="btn btn-success" onclick="approveUser(${u.telegram_id})">Approve</button>
-                        <button class="btn btn-danger" onclick="banUser(${u.telegram_id})">Ban</button>
-                    </td>
-                </tr>`;
-            });
+            try {
+                const response = await fetch('/api/admin/users', { headers: getHeaders() });
+                const data = await response.json();
+                const table = document.getElementById('users-table');
+                table.innerHTML = '<tr><th>ID</th><th>Name</th><th>Balance</th><th>Actions</th></tr>';
+                data.users.forEach(u => {
+                    table.innerHTML += `<tr>
+                        <td>${u.telegram_id}</td>
+                        <td>${u.first_name}</td>
+                        <td>${u.balance} ETB</td>
+                        <td>
+                            <button class="btn btn-success" onclick="approveUser(${u.telegram_id})">Approve</button>
+                            <button class="btn btn-danger" onclick="banUser(${u.telegram_id})">Ban</button>
+                        </td>
+                    </tr>`;
+                });
+            } catch (e) {
+                console.error('Failed to load users', e);
+            }
         }
 
         async function approveUser(id) {
@@ -1116,11 +1220,12 @@ ADMIN_HTML = '''<!DOCTYPE html>
             loadUsers();
         }
 
-        loadUsers();
+        init();
     </script>
 </body>
 </html>'''
 
+# [All API routes remain the same as previous fix]
 @app.route('/api/player/auth', methods=['POST'])
 @require_telegram_auth
 def player_auth():
@@ -1318,6 +1423,13 @@ def ban_user(user_id):
         return jsonify({'success': True})
     return jsonify({'error': 'User not found'}), 404
 
+@app.route('/api/admin/settings/house-favor', methods=['GET'])
+@require_admin_auth
+def get_house_favor():
+    """Get current house favor setting"""
+    enabled = GameSettings.get_house_favor()
+    return jsonify({'enabled': enabled})
+
 @app.route('/api/admin/settings/house-favor', methods=['POST'])
 @require_admin_auth
 def set_house_favor():
@@ -1340,6 +1452,7 @@ def init_db():
     try:
         db.create_all()
         
+        # Create default settings
         if not GameSettings.query.first():
             settings = [
                 GameSettings(key='house_cut_percent', value='10.0'),
@@ -1349,6 +1462,7 @@ def init_db():
                 db.session.add(s)
             db.session.commit()
         
+        # Create admin user if not exists
         admin = User.query.filter_by(telegram_id=Config.ADMIN_ID).first()
         if not admin:
             admin = User(
@@ -1363,14 +1477,23 @@ def init_db():
             db.session.add(admin)
             db.session.commit()
         
-        return '✅ Database initialized!<br><br><a href="/">Go to App</a>'
+        # Add admin to admins table
+        admin_record = Admin.query.filter_by(telegram_id=Config.ADMIN_ID).first()
+        if not admin_record:
+            admin_record = Admin(telegram_id=Config.ADMIN_ID, username='admin')
+            db.session.add(admin_record)
+            db.session.commit()
+        
+        return '✅ Database initialized!<br><br><a href="/">Go to App</a> | <a href="/admin">Go to Admin</a>'
     except Exception as e:
+        logger.error(f"Init DB error: {e}")
         return f'❌ Error: {str(e)}'
 
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     try:
         data = request.get_json()
+        logger.info(f"Webhook received: {data}")
         
         if 'message' in data:
             message = data['message']
@@ -1379,11 +1502,13 @@ def telegram_webhook():
             text = message.get('text', '')
             
             if 'photo' in message:
-                handle_deposit_screenshot(chat_id, user, message['photo'])
+                with app.app_context():
+                    handle_deposit_screenshot(chat_id, user, message['photo'])
                 return jsonify({'ok': True})
             
             if text:
-                handle_bot_command(chat_id, user, text)
+                with app.app_context():
+                    handle_bot_command(chat_id, user, text)
                 
         return jsonify({'ok': True})
     except Exception as e:
@@ -1422,6 +1547,7 @@ Reply: /approve {deposit.id} [amount] or /reject {deposit.id}"""
         url = f"https://api.telegram.org/bot{Config.BOT_TOKEN}/sendPhoto"
         requests.post(url, json={'chat_id': Config.ADMIN_ID, 'photo': file_id, 'caption': admin_text, 'parse_mode': 'HTML'}, timeout=10)
     except Exception as e:
+        logger.error(f"Failed to send photo to admin: {e}")
         send_telegram_message(Config.ADMIN_ID, admin_text)
 
 def handle_bot_command(chat_id, user, text):
@@ -1458,14 +1584,24 @@ def handle_bot_command(chat_id, user, text):
 
             send_telegram_message(Config.ADMIN_ID, f"🆕 New user: {first_name} (+{Config.WELCOME_BONUS} ETB bonus)")
 
+               # FIX: Use Config.WEBAPP_URL directly (already has trailing slash)
         welcome_text = f"""🎰 Welcome to NEXUS BINGO, {first_name}!
 
 {f"🎁 You got {Config.WELCOME_BONUS} ETB bonus!" if is_new_user else ""}
 
 👇 Click below to play!"""
 
-        keyboard = {"inline_keyboard": [[{"text": "🎰 PLAY NEXUS BINGO", "web_app": {"url": Config.WEBAPP_URL}}]]}
-        send_telegram_message(chat_id, welcome_text, reply_markup=keyboard)
+        keyboard = {
+            "inline_keyboard": [[
+                {
+                    "text": "🎰 PLAY NEXUS BINGO",
+                    "web_app": {"url": Config.WEBAPP_URL}
+                }
+            ]]
+        }
+        result = send_telegram_message(chat_id, welcome_text, reply_markup=keyboard)
+        if result and not result.get('ok'):
+            logger.error(f"Failed to send start message: {result}")
 
     elif cmd == '/deposit':
         send_telegram_message(chat_id, "💰 Send Telebirr to 0936 719 379, then send screenshot here.")
@@ -1483,11 +1619,22 @@ def handle_bot_command(chat_id, user, text):
 
     elif cmd == '/admin':
         if telegram_id == Config.ADMIN_ID:
-            keyboard = {"inline_keyboard": [[{"text": "🔐 Open Admin Panel", "web_app": {"url": Config.WEBAPP_URL + 'admin'}}]]}
+            # FIX: Use Config.WEBAPP_URL + 'admin' (URL already has trailing slash)
+            admin_url = f"{Config.WEBAPP_URL}admin"
+            
+            keyboard = {
+                "inline_keyboard": [[
+                    {
+                        "text": "🔐 Open Admin Panel",
+                        "web_app": {"url": admin_url}
+                    }
+                ]]
+            }
             send_telegram_message(chat_id, "🔐 Admin Panel:", reply_markup=keyboard)
         else:
             send_telegram_message(chat_id, "❌ Unauthorized")
 
+    # Admin commands
     if telegram_id == Config.ADMIN_ID:
         parts = text.split()
         if len(parts) >= 2:
@@ -1502,14 +1649,24 @@ def handle_bot_command(chat_id, user, text):
                         deposit.approved_at = datetime.utcnow()
                         deposit.approved_by = Config.ADMIN_ID
                         user = User.query.filter_by(telegram_id=deposit.user_id).first()
-                        user.balance = float(user.balance) + amount
-                        user.total_deposited = float(user.total_deposited) + amount
-                        transaction = Transaction(user_id=deposit.user_id, type='deposit', amount=amount, reference_id=str(deposit.id), description='Deposit approved')
-                        db.session.add(transaction)
-                        db.session.commit()
-                        send_telegram_message(deposit.user_id, f"✅ Your deposit of {amount} ETB approved!")
-                        send_telegram_message(Config.ADMIN_ID, f"✅ Approved deposit #{deposit_id}")
+                        if user:
+                            user.balance = float(user.balance) + amount
+                            user.total_deposited = float(user.total_deposited) + amount
+                            transaction = Transaction(
+                                user_id=deposit.user_id,
+                                type='deposit',
+                                amount=amount,
+                                reference_id=str(deposit.id),
+                                description='Deposit approved'
+                            )
+                            db.session.add(transaction)
+                            db.session.commit()
+                            send_telegram_message(deposit.user_id, f"✅ Your deposit of {amount} ETB approved!")
+                            send_telegram_message(Config.ADMIN_ID, f"✅ Approved deposit #{deposit_id}")
+                        else:
+                            send_telegram_message(Config.ADMIN_ID, "❌ User not found for deposit")
                 except Exception as e:
+                    logger.error(f"Approve error: {e}")
                     send_telegram_message(Config.ADMIN_ID, f"❌ Error: {str(e)}")
 
             elif parts[0] == '/reject' and len(parts) >= 2:
@@ -1522,11 +1679,49 @@ def handle_bot_command(chat_id, user, text):
                         send_telegram_message(deposit.user_id, "❌ Deposit rejected.")
                         send_telegram_message(Config.ADMIN_ID, f"✅ Rejected deposit #{deposit_id}")
                 except Exception as e:
+                    logger.error(f"Reject error: {e}")
                     send_telegram_message(Config.ADMIN_ID, f"❌ Error: {str(e)}")
 
+@app.route('/setup_webhook', methods=['GET'])
+def setup_webhook():
+    """Setup webhook for Telegram bot"""
+    try:
+        url = f"https://api.telegram.org/bot{Config.BOT_TOKEN}/setWebhook"
+        webhook_url = Config.WEBHOOK_URL
+        payload = {
+            "url": webhook_url,
+            "allowed_updates": ["message", "callback_query"]
+        }
+        response = requests.post(url, json=payload, timeout=10)
+        result = response.json()
+        if result.get('ok'):
+            return f"✅ Webhook set to: {webhook_url}"
+        else:
+            return f"❌ Failed: {result.get('description', 'Unknown error')}"
+    except Exception as e:
+        return f"❌ Error: {str(e)}"
+
+@app.route('/health')
+def health_check():
+    return jsonify({
+        'status': 'ok',
+        'timestamp': datetime.utcnow().isoformat(),
+        'bot_token_set': bool(Config.BOT_TOKEN and Config.BOT_TOKEN != 'YOUR_BOT_TOKEN_HERE'),
+        'webapp_url': Config.WEBAPP_URL,
+        'webhook_url': Config.WEBHOOK_URL,
+        'admin_id': Config.ADMIN_ID
+    })
+
 if __name__ == '__main__':
+    # Validate configuration on startup
+    config_errors = Config.validate()
+    if config_errors:
+        logger.error("Configuration errors detected. Check your environment variables.")
+    
     with app.app_context():
         db.create_all()
+        
+        # Initialize default settings
         if not GameSettings.query.first():
             settings = [
                 GameSettings(key='house_cut_percent', value='10.0'),
@@ -1535,6 +1730,29 @@ if __name__ == '__main__':
             for s in settings:
                 db.session.add(s)
             db.session.commit()
+        
+        # Create admin user if not exists
+        admin = User.query.filter_by(telegram_id=Config.ADMIN_ID).first()
+        if not admin:
+            admin = User(
+                telegram_id=Config.ADMIN_ID,
+                username='admin',
+                first_name='Admin',
+                last_name='User',
+                is_approved=True,
+                balance=0,
+                welcome_bonus_claimed=True
+            )
+            db.session.add(admin)
+            db.session.commit()
+            logger.info(f"Created admin user with ID: {Config.ADMIN_ID}")
+        
+        # Add admin to admins table
+        admin_record = Admin.query.filter_by(telegram_id=Config.ADMIN_ID).first()
+        if not admin_record:
+            admin_record = Admin(telegram_id=Config.ADMIN_ID, username='admin')
+            db.session.add(admin_record)
+            db.session.commit()
     
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', '5000').strip())
     app.run(host='0.0.0.0', port=port, debug=False)
