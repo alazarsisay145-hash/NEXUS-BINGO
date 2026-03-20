@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: nexus-bingo
+    runtime: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn app:app --bind 0.0.0.0:$PORT --workers 4 --threads 2"
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_ID
+        sync: false
+      - key: WEBAPP_URL
+        sync: false
+      - key: WEBHOOK_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: WELCOME_BONUS
+        value: "25.0"
+      - key: PYTHON_VERSION
+        value: "3.11.0"
