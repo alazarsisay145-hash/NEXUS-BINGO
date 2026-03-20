@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 class Config:
-    BOT_TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
-    BOT_USERNAME = os.environ.get('BOT_USERNAME', '@NexusBingoBot')
+    BOT_TOKEN = os.environ.get('BOT_TOKEN', '8615731945:AAF5ltmg_j_abBngVTSQnXa2MiVu7eweTTI')
+    BOT_USERNAME = os.environ.get('BOT_USERNAME', '@neXUSSBINGObot')
     ADMIN_ID = int(os.environ.get('ADMIN_ID', '8461485965'))
     DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite:///bingo.db')
     SECRET_KEY = os.environ.get('SECRET_KEY', secrets.token_hex(32))
