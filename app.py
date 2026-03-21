@@ -23,9 +23,9 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 class Config:
-    # FIX: Strip whitespace from all environment variables
-    BOT_TOKEN = os.environ.get('8615731945:AAF5ltmg_j_abBngVTSQnXa2MiVu7eweTTI', '').strip()
-    BOT_USERNAME = os.environ.get('@neXUSSBINGObot', '').strip()
+    # FIX: Use environment variable NAMES, not values as defaults
+    BOT_TOKEN = os.environ.get('BOT_TOKEN', '').strip()
+    BOT_USERNAME = os.environ.get('BOT_USERNAME', '').strip()
     ADMIN_ID = int(os.environ.get('ADMIN_ID', '8461485965').strip())
     DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite:///bingo.db').strip()
     SECRET_KEY = os.environ.get('SECRET_KEY', secrets.token_hex(32)).strip()
@@ -48,7 +48,7 @@ class Config:
     @classmethod
     def validate(cls):
         errors = []
-        if not cls.BOT_TOKEN or cls.BOT_TOKEN == 'YOUR_BOT_TOKEN_HERE':
+        if not cls.BOT_TOKEN:
             errors.append("BOT_TOKEN not set")
         if not cls.WEBAPP_URL or 'yourdomain.com' in cls.WEBAPP_URL:
             errors.append("WEBAPP_URL not properly configured")
@@ -66,7 +66,7 @@ app.config['SECRET_KEY'] = Config.SECRET_KEY
 CORS(app)
 db = SQLAlchemy(app)
 
-# [All models remain the same as previous fix - User, Room, RoomPlayer, Deposit, Withdrawal, Transaction, GameSettings, GameCall, Admin]
+# [Rest of your code remains the same...]
 
 class GameCall(db.Model):
     __tablename__ = 'game_calls'
@@ -1584,7 +1584,7 @@ def handle_bot_command(chat_id, user, text):
 
             send_telegram_message(Config.ADMIN_ID, f"🆕 New user: {first_name} (+{Config.WELCOME_BONUS} ETB bonus)")
 
-               # FIX: Use Config.WEBAPP_URL directly (already has trailing slash)
+                # FIX: Use Config.WEBAPP_URL directly (already has trailing slash)
         welcome_text = f"""🎰 Welcome to NEXUS BINGO, {first_name}!
 
 {f"🎁 You got {Config.WELCOME_BONUS} ETB bonus!" if is_new_user else ""}
