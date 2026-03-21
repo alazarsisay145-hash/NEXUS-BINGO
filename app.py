@@ -22,41 +22,21 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+# HARDCODED CONFIG - Replace with env vars after testing on Render
 class Config:
-    # FIX: Use environment variable NAMES, not values as defaults
-    BOT_TOKEN = os.environ.get('BOT_TOKEN', '').strip()
-    BOT_USERNAME = os.environ.get('BOT_USERNAME', '').strip()
-    ADMIN_ID = int(os.environ.get('ADMIN_ID', '8461485965').strip())
-    DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite:///bingo.db').strip()
-    SECRET_KEY = os.environ.get('SECRET_KEY', secrets.token_hex(32)).strip()
-    DEFAULT_HOUSE_CUT = float(os.environ.get('DEFAULT_HOUSE_CUT', '10.0').strip())
-    MAX_CARTELAS_PER_PLAYER = int(os.environ.get('MAX_CARTELAS_PER_PLAYER', '3').strip())
-    AUTO_FILL_BOT_COUNT = int(os.environ.get('AUTO_FILL_BOT_COUNT', '10').strip())
-    MIN_PLAYERS_TO_START = int(os.environ.get('MIN_PLAYERS_TO_START', '2').strip())
-    TOTAL_CARTELAS_IN_GAME = int(os.environ.get('TOTAL_CARTELAS_IN_GAME', '100').strip())
-    
-    # FIX: Strip whitespace and ensure trailing slash for WEBAPP_URL
-    _raw_webapp_url = os.environ.get('WEBAPP_URL', 'https://yourdomain.com/').strip()
-    WEBAPP_URL = _raw_webapp_url if _raw_webapp_url.endswith('/') else _raw_webapp_url + '/'
-    
-    # FIX: Strip whitespace for WEBHOOK_URL
-    WEBHOOK_URL = os.environ.get('WEBHOOK_URL', 'https://yourdomain.com/webhook').strip()
-    
-    WELCOME_BONUS = float(os.environ.get('WELCOME_BONUS', '25.0').strip())
-
-    # Validation
-    @classmethod
-    def validate(cls):
-        errors = []
-        if not cls.BOT_TOKEN:
-            errors.append("BOT_TOKEN not set")
-        if not cls.WEBAPP_URL or 'yourdomain.com' in cls.WEBAPP_URL:
-            errors.append("WEBAPP_URL not properly configured")
-        if not cls.WEBHOOK_URL or 'yourdomain.com' in cls.WEBHOOK_URL:
-            errors.append("WEBHOOK_URL not properly configured")
-        if errors:
-            logger.error(f"Configuration errors: {errors}")
-        return errors
+    BOT_TOKEN = "8615731945:AAF5ltmg_j_abBngVTSQnXa2MiVu7eweTTI"
+    BOT_USERNAME = "@neXUSSBINGObot"
+    ADMIN_ID = 8461485965
+    DATABASE_URL = "sqlite:///bingo.db"
+    SECRET_KEY = "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6"
+    DEFAULT_HOUSE_CUT = 10.0
+    MAX_CARTELAS_PER_PLAYER = 3
+    AUTO_FILL_BOT_COUNT = 10
+    MIN_PLAYERS_TO_START = 2
+    TOTAL_CARTELAS_IN_GAME = 100
+    WEBAPP_URL = "https://nexus-bingo.onrender.com/"
+    WEBHOOK_URL = "https://nexus-bingo.onrender.com/webhook"
+    WELCOME_BONUS = 25.0
 
 app.config.from_object(Config)
 app.config['SQLALCHEMY_DATABASE_URI'] = Config.DATABASE_URL
@@ -65,6 +45,8 @@ app.config['SECRET_KEY'] = Config.SECRET_KEY
 
 CORS(app)
 db = SQLAlchemy(app)
+
+# [Rest of your code with models, game logic, routes, etc.]
 
 # [Rest of your code remains the same...]
 
