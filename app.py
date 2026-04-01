@@ -8,6 +8,7 @@ import hmac
 import requests
 import threading
 import time
+import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
 from urllib.parse import parse_qsl
@@ -15,12 +16,13 @@ from flask import Flask, jsonify, request, render_template_string
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from functools import wraps
-import logging
 
-logging.basicConfig(level=logging.INFO)
+# Setup logging first
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
-
-app = Flask(__name__)
 
 # ==================== CONFIGURATION ====================
 class Config:
@@ -41,17 +43,23 @@ class Config:
     CBE_ACCOUNT = os.environ.get("CBE_ACCOUNT", "")
 
 # Validate critical configuration
+config_errors = []
 if not Config.BOT_TOKEN:
-    logger.error("FATAL: BOT_TOKEN environment variable is required!")
-    raise ValueError("BOT_TOKEN not set in environment variables")
-
+    config_errors.append("FATAL: BOT_TOKEN environment variable is required!")
 if not Config.SECRET_KEY:
-    logger.error("FATAL: SECRET_KEY environment variable is required!")
-    raise ValueError("SECRET_KEY not set in environment variables")
-
+    # Auto-generate if not set (for development only)
+    Config.SECRET_KEY = secrets.token_hex(32)
+    logger.warning("WARNING: SECRET_KEY not set, using auto-generated key!")
 if Config.ADMIN_ID == 0:
     logger.warning("WARNING: ADMIN_ID not set! Admin features will be unavailable.")
 
+if config_errors:
+    for error in config_errors:
+        logger.error(error)
+    raise ValueError("Missing required configuration. Check logs above.")
+
+# ==================== FLASK APP SETUP ====================
+app = Flask(__name__)
 app.config.from_object(Config)
 app.config["SQLALCHEMY_DATABASE_URI"] = Config.DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -60,7 +68,9 @@ app.config["SECRET_KEY"] = Config.SECRET_KEY
 # FIX: SQLite threading fix for Render
 if Config.DATABASE_URL.startswith("sqlite"):
     app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-        "connect_args": {"check_same_thread": False}
+        "connect_args": {"check_same_thread": False},
+        "pool_pre_ping": True,
+        "pool_recycle": 300
     }
 
 CORS(app)
@@ -774,9 +784,15 @@ def index():
 
 @app.route('/health')
 def health():
+    try:
+        db.session.execute("SELECT 1")
+        db_status = "connected"
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+    
     return jsonify({
         "status": "healthy",
-        "database": "connected" if db.session.execute("SELECT 1").scalar() is not None else "error",
+        "database": db_status,
         "timestamp": datetime.utcnow().isoformat()
     }), 200
 
@@ -1348,16 +1364,20 @@ def admin_settings():
 
 def init_db():
     with app.app_context():
-        db.create_all()
-        logger.info("✅ Database tables created")
-        
-        if Config.ADMIN_ID and Config.ADMIN_ID != 0:
-            admin = Admin.query.filter_by(telegram_id=Config.ADMIN_ID).first()
-            if not admin:
-                admin = Admin(telegram_id=Config.ADMIN_ID, username="primary_admin")
-                db.session.add(admin)
-                db.session.commit()
-                logger.info(f"✅ Default admin created: {Config.ADMIN_ID}")
+        try:
+            db.create_all()
+            logger.info("✅ Database tables created")
+            
+            if Config.ADMIN_ID and Config.ADMIN_ID != 0:
+                admin = Admin.query.filter_by(telegram_id=Config.ADMIN_ID).first()
+                if not admin:
+                    admin = Admin(telegram_id=Config.ADMIN_ID, username="primary_admin")
+                    db.session.add(admin)
+                    db.session.commit()
+                    logger.info(f"✅ Default admin created: {Config.ADMIN_ID}")
+        except Exception as e:
+            logger.error(f"Database initialization error: {e}")
+            raise
 
 def set_webhook():
     try:
@@ -1393,11 +1413,21 @@ def get_webhook_info():
         logger.error(f"Failed to get webhook info: {e}")
         return None
 
+# Background webhook setup to avoid blocking startup
+def setup_webhook_async():
+    def webhook_task():
+        time.sleep(5)  # Wait for server to start
+        with app.app_context():
+            set_webhook()
+    
+    thread = threading.Thread(target=webhook_task, daemon=True)
+    thread.start()
+
 # ==================== MAIN ====================
 
 if __name__ == '__main__':
     init_db()
-    set_webhook()
+    setup_webhook_async()  # Non-blocking webhook setup
     
     info = get_webhook_info()
     if info:
@@ -1411,6 +1441,7 @@ if __name__ == '__main__':
     
     app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
 else:
+    # Production (gunicorn) entry point
     init_db()
-    set_webhook()
+    setup_webhook_async()
     logger.info("🚀 App loaded via WSGI (gunicorn)")
