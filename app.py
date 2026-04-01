@@ -1,4 +1,4 @@
- import os
+import os
 import secrets
 import random
 import string
@@ -24,7 +24,6 @@ app = Flask(__name__)
 
 # ==================== CONFIGURATION ====================
 class Config:
-    # CRITICAL: All values from environment variables only - NO hardcoded secrets
     BOT_TOKEN = os.environ.get("BOT_TOKEN")
     BOT_USERNAME = os.environ.get("BOT_USERNAME", "@neXUSSBINGObot")
     ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
@@ -58,7 +57,7 @@ app.config["SQLALCHEMY_DATABASE_URI"] = Config.DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = Config.SECRET_KEY
 
-# FIX: SQLite threading fix for Render (allows multiple threads to access DB)
+# FIX: SQLite threading fix for Render
 if Config.DATABASE_URL.startswith("sqlite"):
     app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
         "connect_args": {"check_same_thread": False}
@@ -207,18 +206,15 @@ class RoomPlayer(db.Model):
         marked = set(self.get_marked(cartela_index))
         if len(marked) < 5:
             return False
-        # Check rows
         for row in range(5):
             if all(row * 5 + col in marked for col in range(5)):
                 return True
-        # Check columns
         for col in range(5):
             if all(row * 5 + col in marked for row in range(5)):
                 return True
-        # Check diagonals
-        if all(i * 6 in marked for i in range(5)):  # Top-left to bottom-right
+        if all(i * 6 in marked for i in range(5)):
             return True
-        if all(i * 4 + 4 in marked for i in range(5)):  # Top-right to bottom-left
+        if all(i * 4 + 4 in marked for i in range(5)):
             return True
         return False
 
@@ -303,35 +299,30 @@ class GameSettings(db.Model):
 # ==================== UTILITY FUNCTIONS ====================
 
 def generate_cartela():
-    """Generate a single 5x5 Bingo cartela"""
     ranges = [range(1, 16), range(16, 31), range(31, 46), range(46, 61), range(61, 76)]
     cartela = []
     for r in ranges:
         cols = random.sample(list(r), 5)
         cartela.extend(cols)
-    cartela[12] = 0  # Free space in center
+    cartela[12] = 0
     return cartela
 
 def generate_cartelas(count):
-    """Generate multiple cartelas"""
     return [generate_cartela() for _ in range(count)]
 
 def generate_room_id():
-    """Generate unique 6-character room ID"""
     while True:
         rid = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
         if not Room.query.get(rid):
             return rid
 
 def generate_game_id():
-    """Generate unique 10-character game ID"""
     while True:
         gid = "".join(random.choices(string.ascii_uppercase + string.digits, k=10))
         if not Room.query.filter_by(game_id=gid).first():
             return gid
 
 def get_letter_for_number(num):
-    """Get BINGO letter for number"""
     if 1 <= num <= 15:
         return "B"
     elif 16 <= num <= 30:
@@ -345,7 +336,6 @@ def get_letter_for_number(num):
     return "B"
 
 def send_telegram_message(chat_id, text, parse_mode="HTML", reply_markup=None):
-    """Send message via Telegram Bot API"""
     try:
         url = f"https://api.telegram.org/bot{Config.BOT_TOKEN}/sendMessage"
         payload = {"chat_id": chat_id, "text": text, "parse_mode": parse_mode}
@@ -361,39 +351,23 @@ def send_telegram_message(chat_id, text, parse_mode="HTML", reply_markup=None):
         return None
 
 def validate_telegram_init_data(init_data):
-    """Validate Telegram WebApp initData"""
     try:
         parsed_data = dict(parse_qsl(init_data, keep_blank_values=True))
         received_hash = parsed_data.pop("hash", None)
         if not received_hash:
             raise ValueError("No hash found")
-        
         data_check_pairs = [f"{k}={v}" for k, v in sorted(parsed_data.items())]
         data_check_string = "\n".join(data_check_pairs)
-        
-        secret_key = hmac.new(
-            key=b"WebAppData", 
-            msg=Config.BOT_TOKEN.encode(), 
-            digestmod=hashlib.sha256
-        ).digest()
-        
-        calculated_hash = hmac.new(
-            key=secret_key, 
-            msg=data_check_string.encode(), 
-            digestmod=hashlib.sha256
-        ).hexdigest()
-        
+        secret_key = hmac.new(key=b"WebAppData", msg=Config.BOT_TOKEN.encode(), digestmod=hashlib.sha256).digest()
+        calculated_hash = hmac.new(key=secret_key, msg=data_check_string.encode(), digestmod=hashlib.sha256).hexdigest()
         if not hmac.compare_digest(calculated_hash, received_hash):
             raise ValueError("Invalid hash")
-        
         auth_date = int(parsed_data.get("auth_date", 0))
         if time.time() - auth_date > 86400:
             raise ValueError("Auth expired")
-        
         user_data = json.loads(parsed_data.get("user", "{}"))
         if not user_data:
             raise ValueError("No user data")
-        
         return user_data
     except Exception as e:
         raise ValueError(f"Validation failed: {str(e)}")
@@ -401,37 +375,20 @@ def validate_telegram_init_data(init_data):
 # ==================== DECORATORS ====================
 
 def require_telegram_auth(f):
-    """Decorator to require Telegram WebApp authentication"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # Test mode bypass
         test_mode = request.headers.get("X-Test-Mode") or request.args.get("test")
         if test_mode:
             test_user = User.query.filter_by(telegram_id=999999999).first()
             if not test_user:
-                test_user = User(
-                    telegram_id=999999999, 
-                    username="testuser", 
-                    first_name="Test", 
-                    last_name="Player", 
-                    is_approved=True, 
-                    balance=100000.0, 
-                    registration_step="approved", 
-                    welcome_bonus_claimed=True
-                )
+                test_user = User(telegram_id=999999999, username="testuser", first_name="Test", last_name="Player", is_approved=True, balance=100000.0, registration_step="approved", welcome_bonus_claimed=True)
                 db.session.add(test_user)
                 db.session.commit()
-            request.telegram_user = {
-                "id": 999999999, 
-                "first_name": "Test", 
-                "last_name": "Player", 
-                "username": "testuser"
-            }
+            request.telegram_user = {"id": 999999999, "first_name": "Test", "last_name": "Player", "username": "testuser"}
             request.current_user = test_user
             request.is_test_mode = True
             return f(*args, **kwargs)
 
-        # Production auth
         auth_header = request.headers.get("X-Telegram-Init-Data")
         if not auth_header:
             auth_header = request.headers.get("Authorization", "")
@@ -453,36 +410,16 @@ def require_telegram_auth(f):
             is_new_user = False
 
             if not user:
-                # Create new user with welcome bonus
-                user = User(
-                    telegram_id=telegram_id,
-                    username=user_data.get("username"),
-                    first_name=user_data.get("first_name", "Player"),
-                    last_name=user_data.get("last_name", ""),
-                    registration_step="telegram_auth",
-                    is_approved=True,
-                    balance=Config.WELCOME_BONUS,
-                    welcome_bonus_claimed=True
-                )
+                user = User(telegram_id=telegram_id, username=user_data.get("username"), first_name=user_data.get("first_name", "Player"), last_name=user_data.get("last_name", ""), registration_step="telegram_auth", is_approved=True, balance=Config.WELCOME_BONUS, welcome_bonus_claimed=True)
                 db.session.add(user)
                 db.session.commit()
                 is_new_user = True
 
-                # Record welcome bonus transaction
-                transaction = Transaction(
-                    user_id=telegram_id,
-                    type="welcome_bonus",
-                    amount=Config.WELCOME_BONUS,
-                    description="Welcome bonus"
-                )
+                transaction = Transaction(user_id=telegram_id, type="welcome_bonus", amount=Config.WELCOME_BONUS, description="Welcome bonus")
                 db.session.add(transaction)
                 db.session.commit()
 
-                # Notify admin
-                send_telegram_message(
-                    Config.ADMIN_ID, 
-                    f"🆕 New user: {user.first_name} (+{Config.WELCOME_BONUS} ETB)"
-                )
+                send_telegram_message(Config.ADMIN_ID, f"🆕 New user: {user.first_name} (+{Config.WELCOME_BONUS} ETB)")
 
             if user.is_banned:
                 return jsonify({"error": "Account banned"}), 403
@@ -495,15 +432,12 @@ def require_telegram_auth(f):
             request.is_test_mode = False
             request.is_new_user = is_new_user
             return f(*args, **kwargs)
-            
         except Exception as e:
             logger.error(f"Auth error: {e}")
             return jsonify({"error": "Authentication failed"}), 401
-            
     return decorated_function
 
 def require_admin_auth(f):
-    """Decorator to require admin privileges"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         test_mode = request.headers.get("X-Test-Mode") or request.args.get("test")
@@ -527,62 +461,39 @@ def require_admin_auth(f):
 
             if not is_admin:
                 return jsonify({"error": "Unauthorized - Admin only"}), 403
-                
             request.telegram_user = user_data
             request.is_admin = True
             return f(*args, **kwargs)
-            
         except Exception as e:
             logger.error(f"Admin auth error: {e}")
             return jsonify({"error": "Authentication failed"}), 401
-            
     return decorated_function
 
 # ==================== BOT MANAGER ====================
 
 class BotPlayerManager:
-    BOT_NAMES = [
-        "Abebe", "Kebede", "Desta", "Tesfaye", "Alemu", "Bekele", 
-        "Mekonnen", "Solomon", "Daniel", "Michael", "Yohannes", 
-        "Girma", "Hailu", "Tadesse", "Fatuma", "Amina", 
-        "Hawa", "Mulu", "Tigist", "Hiwot"
-    ]
+    BOT_NAMES = ["Abebe", "Kebede", "Desta", "Tesfaye", "Alemu", "Bekele", "Mekonnen", "Solomon", "Daniel", "Michael", "Yohannes", "Girma", "Hailu", "Tadesse", "Fatuma", "Amina", "Hawa", "Mulu", "Tigist", "Hiwot"]
 
     @classmethod
     def get_or_create_bot(cls, bot_index):
-        """Get existing bot or create new one"""
         bot_id = -(1000000000 + bot_index)
         bot = User.query.filter_by(telegram_id=bot_id).first()
         if bot:
             return bot
-        
         name = random.choice(cls.BOT_NAMES)
         username = f"{name.lower()}{random.randint(1000, 9999)}_bot"
-        bot = User(
-            telegram_id=bot_id,
-            username=username,
-            first_name=f"🤖 {name}",
-            last_name="Bot",
-            is_approved=True,
-            is_bot=True,
-            balance=1000000.0,
-            registration_step="approved",
-            welcome_bonus_claimed=True
-        )
+        bot = User(telegram_id=bot_id, username=username, first_name=f"🤖 {name}", last_name="Bot", is_approved=True, is_bot=True, balance=1000000.0, registration_step="approved", welcome_bonus_claimed=True)
         db.session.add(bot)
         db.session.commit()
         return bot
 
     @classmethod
     def fill_room_with_bots(cls, room_id, stake, num_bots=None, house_favor=False):
-        """Fill room with AI bot players"""
         if num_bots is None:
             num_bots = Config.AUTO_FILL_BOT_COUNT
-            
         room = Room.query.get(room_id)
         if not room:
             return
-            
         current_players = RoomPlayer.query.filter_by(room_id=room_id).count()
         max_players = room.max_players
         bots_to_add = min(num_bots, max_players - current_players)
@@ -591,21 +502,11 @@ class BotPlayerManager:
             bot = cls.get_or_create_bot(i)
             cartela_count = random.randint(1, min(3, Config.MAX_CARTELAS_PER_PLAYER))
             cartelas = generate_cartelas(cartela_count)
-            
-            player = RoomPlayer(
-                room_id=room_id,
-                user_id=bot.telegram_id,
-                is_host=False,
-                is_fake=True,
-                cartela_count=cartela_count
-            )
+            player = RoomPlayer(room_id=room_id, user_id=bot.telegram_id, is_host=False, is_fake=True, cartela_count=cartela_count)
             player.set_cartelas(cartelas)
-            
-            # Deduct from bot balance and add to pot
             bot.balance = float(bot.balance) - (stake * cartela_count)
             room.pot_amount = float(room.pot_amount) + (stake * cartela_count)
             room.total_cartelas = room.total_cartelas + cartela_count
-            
             db.session.add(player)
 
         room.is_automated = True
@@ -637,7 +538,6 @@ class GameManager:
         return self._room_locks[room_id]
 
     def get_room_state(self, room_id):
-        """Get current game state with caching"""
         with self._get_room_lock(room_id):
             if room_id in self._room_states:
                 cached = self._room_states[room_id]
@@ -658,7 +558,6 @@ class GameManager:
             return state
 
     def start_timer(self, room_id, delay_seconds=120):
-        """Start countdown timer to auto-fill room with bots"""
         if room_id in self.timer_threads:
             return
 
@@ -668,10 +567,8 @@ class GameManager:
                 room = Room.query.get(room_id)
                 if not room or room.status != "waiting":
                     return
-                    
                 house_favor = GameSettings.get_house_favor()
                 BotPlayerManager.fill_room_with_bots(room_id, float(room.stake), house_favor=house_favor)
-                
                 room = Room.query.get(room_id)
                 if room.status == "waiting":
                     room.status = "calling"
@@ -684,7 +581,6 @@ class GameManager:
         thread.start()
 
     def start_game(self, room_id):
-        """Start the number calling game loop"""
         if room_id in self.call_threads:
             return
 
@@ -697,7 +593,6 @@ class GameManager:
         thread.start()
 
     def _run_game_loop(self, room_id):
-        """Main game loop that calls numbers every 5-8 seconds"""
         room = Room.query.get(room_id)
         if not room:
             return
@@ -709,7 +604,7 @@ class GameManager:
         house_favor = room.house_favor_enabled
 
         while available_numbers:
-            time.sleep(random.uniform(5, 8))  # Wait between calls
+            time.sleep(random.uniform(5, 8))
 
             db.session.expire_all()
             room = Room.query.get(room_id)
@@ -721,7 +616,6 @@ class GameManager:
                 if not available_numbers:
                     break
 
-                # House favor: 30% chance to pick number that helps bots
                 if house_favor and random.random() < 0.3:
                     number = self._select_favorable_number(room_id, available_numbers)
                 else:
@@ -733,7 +627,6 @@ class GameManager:
                 room.add_called_number(number)
                 db.session.commit()
 
-                # Update cache
                 self._room_states[room_id] = {
                     "current_call": call_str,
                     "called_numbers": room.get_called_numbers(),
@@ -741,28 +634,23 @@ class GameManager:
                     "timestamp": time.time()
                 }
 
-            # Record the call
             game_call = GameCall(room_id=room_id, call_number=call_str, number_value=number)
             db.session.add(game_call)
             db.session.commit()
 
-            # Auto-mark for bots
             self._auto_mark_for_bots(room_id, number)
 
-            # Check for winner
             winner = self._check_for_winner(room_id)
             if winner:
                 self.end_game(room_id, winner)
                 return
 
-            # Safety: end after 75 numbers
             if len(room.get_called_numbers()) >= 75:
                 winner = self._pick_random_winner(room_id)
                 self.end_game(room_id, winner)
                 return
 
     def _select_favorable_number(self, room_id, available_numbers):
-        """Pick number that helps bot players complete a line"""
         bot_players = RoomPlayer.query.filter_by(room_id=room_id, is_fake=True).all()
         favorable_numbers = []
 
@@ -786,27 +674,20 @@ class GameManager:
         return available_numbers.pop(random.randint(0, len(available_numbers) - 1))
 
     def _would_complete_line(self, marked_indices):
-        """Check if adding one more number would complete a line"""
         if len(marked_indices) < 4:
             return False
         marked_set = set(marked_indices)
-        
-        # Check rows
         for row in range(5):
             count = sum(1 for col in range(5) if row * 5 + col in marked_set)
             if count >= 4:
                 return True
-        
-        # Check columns
         for col in range(5):
             count = sum(1 for row in range(5) if row * 5 + col in marked_set)
             if count >= 4:
                 return True
-        
         return False
 
     def _auto_mark_for_bots(self, room_id, number):
-        """Automatically mark numbers for bot players"""
         players = RoomPlayer.query.filter_by(room_id=room_id, is_fake=True).all()
         for player in players:
             cartelas = player.get_cartelas()
@@ -817,7 +698,6 @@ class GameManager:
         db.session.commit()
 
     def _check_for_winner(self, room_id):
-        """Check if any player has bingo"""
         players = RoomPlayer.query.filter_by(room_id=room_id).all()
         for player in players:
             for cartela_idx in range(player.cartela_count):
@@ -826,7 +706,6 @@ class GameManager:
         return None
 
     def _pick_random_winner(self, room_id):
-        """Pick random winner if no bingo after 75 calls"""
         players = RoomPlayer.query.filter_by(room_id=room_id).all()
         if players:
             weighted_players = []
@@ -837,7 +716,6 @@ class GameManager:
         return None
 
     def end_game(self, room_id, winner_id):
-        """End game and distribute winnings"""
         with self._get_room_lock(room_id):
             room = Room.query.get(room_id)
             if not room or room.status == "completed":
@@ -850,13 +728,11 @@ class GameManager:
             if winner_id:
                 winner = User.query.filter_by(telegram_id=winner_id).first()
                 if winner:
-                    # Calculate winnings
                     house_cut_percent = float(room.house_cut_percent) if room.house_cut_percent else GameSettings.get_house_cut()
                     total_pot = float(room.pot_amount)
                     house_fee = total_pot * (house_cut_percent / 100)
                     win_amount = total_pot - house_fee
 
-                    # Update winner
                     winner.balance = float(winner.balance) + win_amount
                     winner.total_games_won = winner.total_games_won + 1
 
@@ -864,30 +740,15 @@ class GameManager:
                     if winner_player:
                         winner_player.has_won = True
 
-                    # Record transaction
-                    transaction = Transaction(
-                        user_id=winner_id,
-                        type="win",
-                        amount=float(win_amount),
-                        reference_id=room.id,
-                        description=f"Won game {room.game_id}"
-                    )
+                    transaction = Transaction(user_id=winner_id, type="win", amount=float(win_amount), reference_id=room.id, description=f"Won game {room.game_id}")
                     db.session.add(transaction)
 
-                    # Send notifications
                     if not winner.is_bot:
-                        send_telegram_message(
-                            winner_id, 
-                            f"🎉 You won {win_amount:.0f} ETB! New balance: {winner.balance:.0f} ETB"
-                        )
-                    send_telegram_message(
-                        Config.ADMIN_ID, 
-                        f"🏆 Winner: {winner.first_name}, Prize: {win_amount:.0f} ETB, Room: {room.id}"
-                    )
+                        send_telegram_message(winner_id, f"🎉 You won {win_amount:.0f} ETB! New balance: {winner.balance:.0f} ETB")
+                    send_telegram_message(Config.ADMIN_ID, f"🏆 Winner: {winner.first_name}, Prize: {win_amount:.0f} ETB, Room: {room.id}")
 
             db.session.commit()
 
-            # Cleanup
             if room_id in self.call_threads:
                 del self.call_threads[room_id]
             if room_id in self.timer_threads:
@@ -903,7 +764,6 @@ game_manager = GameManager()
 
 @app.route('/')
 def index():
-    """Health check endpoint"""
     return jsonify({
         "status": "running",
         "service": "Nexus Bingo Bot",
@@ -914,18 +774,15 @@ def index():
 
 @app.route('/health')
 def health():
-    """Render health check"""
     return jsonify({
         "status": "healthy",
         "database": "connected" if db.session.execute("SELECT 1").scalar() is not None else "error",
         "timestamp": datetime.utcnow().isoformat()
     }), 200
 
-# Telegram WebApp endpoint
 @app.route('/webapp')
 @require_telegram_auth
 def webapp():
-    """Main WebApp entry point"""
     user = request.current_user
     return jsonify({
         "user": user.to_dict(),
@@ -938,10 +795,8 @@ def webapp():
         }
     })
 
-# Webhook for Telegram bot
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    """Handle Telegram bot updates"""
     try:
         data = request.get_json()
         logger.info(f"Webhook received: {json.dumps(data, indent=2)}")
@@ -950,9 +805,7 @@ def webhook():
             message = data['message']
             chat_id = message.get('chat', {}).get('id')
             text = message.get('text', '')
-            user = message.get('from', {})
             
-            # Handle /start command
             if text == '/start':
                 send_telegram_message(
                     chat_id,
@@ -969,7 +822,6 @@ def webhook():
                 )
                 logger.info(f"Sent welcome to user {chat_id}")
             
-            # Handle /help command
             elif text == '/help':
                 send_telegram_message(
                     chat_id,
@@ -982,7 +834,6 @@ def webhook():
                     f"💬 Support: Contact admin for assistance"
                 )
             
-            # Handle /balance command
             elif text == '/balance':
                 user_db = User.query.filter_by(telegram_id=chat_id).first()
                 if user_db:
@@ -1004,7 +855,6 @@ def webhook():
                         }
                     )
             
-            # Handle admin commands
             elif text.startswith('/admin') and chat_id == Config.ADMIN_ID:
                 send_telegram_message(
                     chat_id,
@@ -1015,7 +865,6 @@ def webhook():
                     f"/pending - View pending deposits/withdrawals"
                 )
             
-            # Handle unknown commands
             elif text.startswith('/'):
                 send_telegram_message(
                     chat_id,
@@ -1029,11 +878,9 @@ def webhook():
         logger.error(f"Webhook error: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-# API Routes - Rooms
 @app.route('/api/rooms', methods=['GET'])
 @require_telegram_auth
 def list_rooms():
-    """List active game rooms"""
     rooms = Room.query.filter(Room.status.in_(['waiting', 'calling'])).all()
     return jsonify([{
         "id": r.id,
@@ -1049,7 +896,6 @@ def list_rooms():
 @app.route('/api/rooms', methods=['POST'])
 @require_telegram_auth
 def create_room():
-    """Create new game room"""
     user = request.current_user
     data = request.get_json()
     
@@ -1090,7 +936,6 @@ def create_room():
     db.session.add(player)
     db.session.commit()
     
-    # Start timer to fill with bots
     game_manager.start_timer(room_id)
     
     logger.info(f"Room {room_id} created by user {user.telegram_id}")
@@ -1108,7 +953,6 @@ def create_room():
 @app.route('/api/rooms/<room_id>/join', methods=['POST'])
 @require_telegram_auth
 def join_room(room_id):
-    """Join existing room"""
     user = request.current_user
     room = Room.query.get_or_404(room_id)
     
@@ -1119,7 +963,6 @@ def join_room(room_id):
     if existing:
         return jsonify({"error": "Already joined this room"}), 400
     
-    # Check room capacity
     current_players = RoomPlayer.query.filter_by(room_id=room_id).count()
     if current_players >= room.max_players:
         return jsonify({"error": "Room is full"}), 400
@@ -1158,7 +1001,6 @@ def join_room(room_id):
 @app.route('/api/rooms/<room_id>/state')
 @require_telegram_auth
 def get_room_state(room_id):
-    """Get current game state"""
     state = game_manager.get_room_state(room_id)
     if not state:
         return jsonify({"error": "Room not found"}), 404
@@ -1178,7 +1020,6 @@ def get_room_state(room_id):
 @app.route('/api/rooms/<room_id>/mark', methods=['POST'])
 @require_telegram_auth
 def mark_number(room_id):
-    """Mark a number on cartela"""
     user = request.current_user
     data = request.get_json()
     cartela_idx = data.get('cartela_index', 0)
@@ -1202,14 +1043,12 @@ def mark_number(room_id):
     called = room.get_called_numbers()
     number = cartelas[cartela_idx][number_idx]
     
-    # Allow marking free space (0) or called numbers
     if number not in called and number != 0:
         return jsonify({"error": "Number not called yet"}), 400
     
     player.mark_number(cartela_idx, number_idx)
     db.session.commit()
     
-    # Check for bingo
     if player.check_bingo_on_cartela(cartela_idx):
         game_manager.end_game(room_id, user.telegram_id)
         return jsonify({
@@ -1225,17 +1064,14 @@ def mark_number(room_id):
         "cartela_index": cartela_idx
     })
 
-# API Routes - User
 @app.route('/api/user/profile')
 @require_telegram_auth
 def get_profile():
-    """Get user profile"""
     return jsonify(request.current_user.to_dict())
 
 @app.route('/api/user/deposit', methods=['POST'])
 @require_telegram_auth
 def request_deposit():
-    """Request deposit"""
     user = request.current_user
     data = request.get_json()
     
@@ -1266,7 +1102,6 @@ def request_deposit():
 @app.route('/api/user/withdraw', methods=['POST'])
 @require_telegram_auth
 def request_withdrawal():
-    """Request withdrawal"""
     user = request.current_user
     data = request.get_json()
     
@@ -1290,11 +1125,9 @@ def request_withdrawal():
     db.session.add(withdrawal)
     db.session.commit()
     
-    # Deduct balance immediately (or hold until approval)
     user.balance = float(user.balance) - float(amount)
     db.session.commit()
     
-    # Notify admin
     send_telegram_message(
         Config.ADMIN_ID,
         f"💸 Withdrawal request\n"
@@ -1313,7 +1146,6 @@ def request_withdrawal():
 @app.route('/api/user/transactions')
 @require_telegram_auth
 def get_transactions():
-    """Get user transaction history"""
     user = request.current_user
     transactions = Transaction.query.filter_by(user_id=user.telegram_id).order_by(Transaction.created_at.desc()).limit(50).all()
     
@@ -1326,11 +1158,9 @@ def get_transactions():
         "created_at": t.created_at.isoformat() if t.created_at else None
     } for t in transactions])
 
-# API Routes - Admin
 @app.route('/api/admin/stats')
 @require_admin_auth
 def admin_stats():
-    """Get admin statistics"""
     total_users = User.query.count()
     total_games = Room.query.count()
     active_games = Room.query.filter(Room.status.in_(['waiting', 'calling'])).count()
@@ -1364,7 +1194,6 @@ def admin_stats():
 @app.route('/api/admin/deposits')
 @require_admin_auth
 def list_pending_deposits():
-    """List pending deposits for admin approval"""
     deposits = Deposit.query.filter_by(status='pending').order_by(Deposit.created_at.desc()).all()
     return jsonify([{
         "id": d.id,
@@ -1379,7 +1208,6 @@ def list_pending_deposits():
 @app.route('/api/admin/deposits/<int:deposit_id>/approve', methods=['POST'])
 @require_admin_auth
 def approve_deposit(deposit_id):
-    """Approve a deposit"""
     deposit = Deposit.query.get_or_404(deposit_id)
     
     if deposit.status != 'pending':
@@ -1427,7 +1255,6 @@ def approve_deposit(deposit_id):
 @app.route('/api/admin/withdrawals')
 @require_admin_auth
 def list_pending_withdrawals():
-    """List pending withdrawals"""
     withdrawals = Withdrawal.query.filter_by(status='pending').order_by(Withdrawal.created_at.desc()).all()
     return jsonify([{
         "id": w.id,
@@ -1442,7 +1269,6 @@ def list_pending_withdrawals():
 @app.route('/api/admin/withdrawals/<int:withdrawal_id>/approve', methods=['POST'])
 @require_admin_auth
 def approve_withdrawal(withdrawal_id):
-    """Approve or reject withdrawal"""
     withdrawal = Withdrawal.query.get_or_404(withdrawal_id)
     
     if withdrawal.status != 'pending':
@@ -1477,7 +1303,6 @@ def approve_withdrawal(withdrawal_id):
         withdrawal.approved_at = datetime.utcnow()
         withdrawal.approved_by = request.telegram_user['id']
         
-        # Refund the amount
         user = User.query.filter_by(telegram_id=withdrawal.user_id).first()
         user.balance = float(user.balance) + float(withdrawal.amount)
         
@@ -1493,7 +1318,6 @@ def approve_withdrawal(withdrawal_id):
 @app.route('/api/admin/settings', methods=['GET', 'POST'])
 @require_admin_auth
 def admin_settings():
-    """Get or update game settings"""
     if request.method == 'GET':
         return jsonify({
             "house_cut_percent": GameSettings.get_house_cut(),
@@ -1503,7 +1327,6 @@ def admin_settings():
             "auto_fill_bots": Config.AUTO_FILL_BOT_COUNT
         })
     
-    # POST - update settings
     data = request.get_json()
     admin_id = request.telegram_user['id']
     
@@ -1524,12 +1347,10 @@ def admin_settings():
 # ==================== INITIALIZATION ====================
 
 def init_db():
-    """Initialize database tables"""
     with app.app_context():
         db.create_all()
         logger.info("✅ Database tables created")
         
-        # Create default admin if specified
         if Config.ADMIN_ID and Config.ADMIN_ID != 0:
             admin = Admin.query.filter_by(telegram_id=Config.ADMIN_ID).first()
             if not admin:
@@ -1539,13 +1360,10 @@ def init_db():
                 logger.info(f"✅ Default admin created: {Config.ADMIN_ID}")
 
 def set_webhook():
-    """Set Telegram webhook on startup"""
     try:
-        # First, delete any existing webhook
         delete_url = f"https://api.telegram.org/bot{Config.BOT_TOKEN}/deleteWebhook"
         requests.get(delete_url, timeout=10)
         
-        # Set new webhook
         url = f"https://api.telegram.org/bot{Config.BOT_TOKEN}/setWebhook"
         payload = {
             "url": Config.WEBHOOK_URL,
@@ -1567,7 +1385,6 @@ def set_webhook():
         return False
 
 def get_webhook_info():
-    """Get current webhook status"""
     try:
         url = f"https://api.telegram.org/bot{Config.BOT_TOKEN}/getWebhookInfo"
         response = requests.get(url, timeout=10)
@@ -1579,28 +1396,21 @@ def get_webhook_info():
 # ==================== MAIN ====================
 
 if __name__ == '__main__':
-    # Initialize database
     init_db()
-    
-    # Set webhook
     set_webhook()
     
-    # Get webhook info for logging
     info = get_webhook_info()
     if info:
         logger.info(f"Webhook info: {info}")
     
-    # Render uses PORT environment variable
     port = int(os.environ.get("PORT", 5000))
     
     logger.info(f"🚀 Starting Nexus Bingo Bot on port {port}")
     logger.info(f"🌐 WebApp URL: {Config.WEBAPP_URL}")
     logger.info(f"🔗 Webhook URL: {Config.WEBHOOK_URL}")
     
-    # Run with gunicorn-compatible settings
     app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
 else:
-    # For gunicorn (production)
     init_db()
     set_webhook()
     logger.info("🚀 App loaded via WSGI (gunicorn)")
