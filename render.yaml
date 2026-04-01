@@ -3,21 +3,19 @@ services:
     name: nexus-bingo
     runtime: python
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "gunicorn app:app --bind 0.0.0.0:$PORT --workers 4 --threads 2"
+    startCommand: "gunicorn -c gunicorn_config.py app:app"
     envVars:
-      - key: BOT_TOKEN
-        sync: false
-      - key: ADMIN_ID
-        sync: false
-      - key: WEBAPP_URL
-        sync: false
-      - key: WEBHOOK_URL
-        sync: false
-      - key: SECRET_KEY
-        generateValue: true
-      - key: DATABASE_URL
-        sync: false
-      - key: WELCOME_BONUS
-        value: "25.0"
       - key: PYTHON_VERSION
-        value: "3.11.0"
+        value: 3.9.0
+      - key: BOT_TOKEN
+        sync: false  # Set this in Render dashboard
+      - key: SECRET_KEY
+        generateValue: true  # Auto-generate if not set
+      - key: ADMIN_ID
+        sync: false  # Set your Telegram ID
+      - key: WEBAPP_URL
+        value: https://nexus-bingo.onrender.com
+      - key: WEBHOOK_URL
+        value: https://nexus-bingo.onrender.com/webhook
+      - key: DATABASE_URL
+        value: sqlite:///bingo.db  # Or use Render PostgreSQL
