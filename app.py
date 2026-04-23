@@ -26,9 +26,9 @@ logger = logging.getLogger(__name__)
 
 # ==================== CONFIGURATION ====================
 class Config:
-    BOT_TOKEN = os.environ.get("BOT_TOKEN")
+    BOT_TOKEN = os.environ.get("8615731945:AAHvNqyvipJKDzJMUs_KPFtcmqzE6FN_TpA")
     BOT_USERNAME = os.environ.get("BOT_USERNAME", "@neXUSSBINGObot")
-    ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
+    ADMIN_ID = int(os.environ.get("ADMIN_ID", "6883208728"))
     DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///bingo.db")
     SECRET_KEY = os.environ.get("SECRET_KEY")
     DEFAULT_HOUSE_CUT = float(os.environ.get("DEFAULT_HOUSE_CUT", "10.0"))
