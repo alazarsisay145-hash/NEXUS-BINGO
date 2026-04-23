@@ -1,7 +1,12 @@
+✅ requirements.txt updated
+
+Fixed dependencies:
 Flask==3.0.3
-Flask-CORS==4.0.0
 Flask-SQLAlchemy==3.1.1
+SQLAlchemy==2.0.37
 gunicorn==23.0.0
 requests==2.32.3
-Werkzeug==2.3.7
-SQLAlchemy==2.0.37
+Werkzeug==3.0.6
+
+
+📝 CHANGE: Werkzeug 2.3.7 → 3.0.6 (compatible with Flask 3.0.3)
