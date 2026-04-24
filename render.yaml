@@ -32,4 +32,3 @@ databases:
     plan: free
     databaseName: nexus_bingo
     user: nexus_bingo
-    
