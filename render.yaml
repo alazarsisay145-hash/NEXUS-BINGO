@@ -12,7 +12,7 @@ services:
         sync: false
       - key: SECRET_KEY
         generateValue: true
-      - key: ADMIN_IDS
+      - key: ADMIN_ID
         sync: false
       - key: WEBAPP_URL
         value: https://nexus-bingo.onrender.com/webapp

@@ -25,11 +25,25 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== CONFIGURATION ====================
+
+def get_database_url():
+    default_url = "sqlite:///bingo.db"
+    raw_url = os.environ.get("DATABASE_URL", default_url)
+    if raw_url is None:
+        return default_url
+    raw_url = raw_url.strip()
+    if not raw_url or raw_url.startswith("["):
+        logger.warning("DATABASE_URL is missing or invalid; falling back to sqlite.")
+        return default_url
+    if raw_url.startswith("postgres://"):
+        raw_url = raw_url.replace("postgres://", "postgresql://", 1)
+    return raw_url
+
 class Config:
     BOT_TOKEN = os.environ.get("BOT_TOKEN")
     BOT_USERNAME = os.environ.get("BOT_USERNAME", "@neXUSSBINGObot")
-    ADMIN_ID = int(os.environ.get("ADMIN_ID", "6883208728"))
-    DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///bingo.db")
+    ADMIN_ID = int(os.environ.get("ADMIN_ID", os.environ.get("ADMIN_IDS", "6883208728")))
+    DATABASE_URL = get_database_url()
     SECRET_KEY = os.environ.get("SECRET_KEY")
     DEFAULT_HOUSE_CUT = float(os.environ.get("DEFAULT_HOUSE_CUT", "10.0"))
     MAX_CARTELAS_PER_PLAYER = int(os.environ.get("MAX_CARTELAS_PER_PLAYER", "3"))
