@@ -25,7 +25,7 @@ app = Flask(__name__)
 class Config:
     BOT_TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
     BOT_USERNAME = os.environ.get('BOT_USERNAME', '@NexusBingoBot')
-    ADMIN_ID = int(os.environ.get('ADMIN_ID', '8461485965'))
+    ADMIN_ID = int(os.environ.get('ADMIN_ID', '6883208728'))
     DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite:///bingo.db')
     SECRET_KEY = os.environ.get('SECRET_KEY', secrets.token_hex(32))
     DEFAULT_HOUSE_CUT = float(os.environ.get('DEFAULT_HOUSE_CUT', '10.0'))

@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: nexus-bingo
+    runtime: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn -c gunicorn_config.py app:app"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: BOT_TOKEN
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_IDS
+        sync: false
+      - key: WEBAPP_URL
+        value: https://nexus-bingo.onrender.com/webapp
+      - key: WEBHOOK_URL
+        value: https://nexus-bingo.onrender.com/webhook
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nexus-bingo-db
+          property: connectionString
+
+databases:
+  - name: nexus-bingo-db
+    plan: free
+    databaseName: nexus_bingo
+    user: nexus_bingo
