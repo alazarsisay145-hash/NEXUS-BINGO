@@ -1,0 +1,14 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.env/
+
+# Local config
+.env
+instance/
+*.db
+
