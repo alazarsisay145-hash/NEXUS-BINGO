@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Nexus Bingo</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
+        :root { --primary: #6366f1; --accent: #f59e0b; --success: #10b981; --danger: #ef4444; --dark: #0f172a; --darker: #020617; --card: rgba(30, 41, 59, 0.9); }
+        body { background: linear-gradient(135deg, var(--darker) 0%, #1e1b4b 50%, var(--dark) 100%); color: white; min-height: 100vh; padding-bottom: 80px; }
+        .header { background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); padding: 12px 16px; position: fixed; top: 0; left: 0; right: 0; z-index: 100; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .logo { font-size: 20px; font-weight: 800; background: linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .balance-badge { background: linear-gradient(135deg, var(--accent) 0%, #f97316 100%); color: black; padding: 6px 12px; border-radius: 20px; font-weight: 700; font-size: 14px; }
+        .main { padding-top: 80px; max-width: 600px; margin: 0 auto; padding-left: 16px; padding-right: 16px; }
+        .card { background: var(--card); border-radius: 16px; padding: 20px; margin-bottom: 16px; border: 1px solid rgba(255,255,255,0.1); }
+        .card-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .btn { width: 100%; padding: 16px; border: none; border-radius: 12px; font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.3s; text-transform: uppercase; margin-bottom: 10px; }
+        .btn-primary { background: linear-gradient(135deg, var(--accent) 0%, #f97316 100%); color: black; }
+        .btn-success { background: linear-gradient(135deg, var(--success), #059669); color: white; }
+        .btn-danger { background: linear-gradient(135deg, var(--danger), #dc2626); color: white; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .form-group { margin-bottom: 16px; }
+        .form-label { display: block; font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.7); margin-bottom: 6px; text-transform: uppercase; }
+        .form-select { width: 100%; padding: 14px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; color: white; font-size: 16px; }
+        .stake-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 15px 0; }
+        .stake-btn { padding: 20px; border: 2px solid rgba(255,255,255,0.1); border-radius: 12px; background: rgba(255,255,255,0.05); color: white; font-size: 24px; font-weight: 800; cursor: pointer; transition: all 0.3s; text-align: center; }
+        .stake-btn.selected { border-color: var(--accent); background: linear-gradient(135deg, rgba(245,158,11,0.3), rgba(249,115,22,0.3)); }
+        .bingo-card { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 15px 0; }
+        .bingo-header { text-align: center; font-weight: 800; font-size: 18px; color: var(--accent); padding: 6px; }
+        .bingo-cell { aspect-ratio: 1; background: rgba(255,255,255,0.05); border: 2px solid rgba(255,255,255,0.1); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 16px; cursor: pointer; transition: all 0.2s; }
+        .bingo-cell.marked { background: var(--success); border-color: var(--success); color: white; }
+        .bingo-cell.called { background: rgba(245, 158, 11, 0.4); border-color: var(--accent); }
+        .bingo-cell.free { background: linear-gradient(135deg, var(--primary), #8b5cf6); border-color: var(--primary); }
+        .call-display { background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2)); border: 2px solid var(--primary); border-radius: 16px; padding: 25px; text-align: center; margin: 15px 0; }
+        .call-letter { font-size: 36px; font-weight: 800; color: var(--accent); }
+        .call-number { font-size: 56px; font-weight: 800; color: white; }
+        .waiting-screen { text-align: center; padding: 40px 20px; }
+        .spinner { width: 50px; height: 50px; border: 4px solid rgba(255,255,255,0.1); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .toast { position: fixed; top: 80px; left: 50%; transform: translateX(-50%); background: rgba(15, 23, 42, 0.95); color: white; padding: 12px 20px; border-radius: 8px; border: 1px solid var(--accent); z-index: 1000; }
+        .hidden { display: none !important; }
+        .room-id-box { background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; text-align: center; margin: 15px 0; border: 2px dashed rgba(245,158,11,0.3); }
+        .room-id-text { font-size: 28px; font-weight: 800; color: var(--accent); letter-spacing: 4px; }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="logo">⚡ NEXUS BINGO</div>
+        <div class="balance-badge" id="balanceDisplay">0 ETB</div>
+    </header>
+
+    <main class="main" id="mainContent">
+        <div class="card" style="text-align: center; padding: 40px;">
+            <div class="spinner"></div>
+            <div>Loading game...</div>
+        </div>
+    </main>
+
+    <script>
+        // API URL - auto-detects Render or local
+        const API_URL = window.location.origin + '/api';
+        
+        let tg = window.Telegram?.WebApp;
+        let userData = null;
+        let currentRoom = null;
+        let cartelas = [];
+        let markedNumbers = [];
+        let calledNumbers = [];
+        let isHost = false;
+        let gameInterval = null;
+
+        const state = {
+            user: null,
+            selectedStake: 5,
+            selectedCartelas: 1
+        };
+
+        async function init() {
+            if (tg) {
+                tg.ready();
+                tg.expand();
+                tg.MainButton.hide();
+                userData = tg.initDataUnsafe?.user;
+            }
+            
+            if (!userData) {
+                showScreen('error', 'Please open from Telegram');
+                return;
+            }
+
+            await loadUser();
+        }
+
+        async function apiCall(endpoint, options = {}) {
+            const url = `${API_URL}${endpoint}`;
+            const headers = {
+                'Content-Type': 'application/json',
+                'X-Telegram-Init-Data': tg?.initData || ''
+            };
+            
+            try {
+                const res = await fetch(url, { ...options, headers });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Request failed');
+                return data;
+            } catch (e) {
+                showToast(e.message, 'error');
+                throw e;
+            }
+        }
+
+        async function loadUser() {
+            try {
+                const data = await apiCall('/user/profile');
+                state.user = data;
+                updateBalance();
+                showScreen('lobby');
+            } catch (e) {
+                showScreen('error', 'Failed to load user');
+            }
+        }
+
+        function updateBalance() {
+            if (state.user) {
+                document.getElementById('balanceDisplay').textContent = 
+                    `${state.user.balance.toFixed(0)} ETB`;
+            }
+        }
+
+        function showScreen(screen, data = null) {
+            const main = document.getElementById('mainContent');
+            
+            const screens = {
+                error: (msg) => `
+                    <div class="card" style="text-align: center; padding: 40px;">
+                        <div style="font-size: 64px; margin-bottom: 20px;">⚠️</div>
+                        <div style="font-size: 20px; font-weight: 700; margin-bottom: 10px;">Error</div>
+                        <div style="color: rgba(255,255,255,0.6);">${msg}</div>
+                    </div>
+                `,
+                
+                lobby: () => `
+                    <div class="card">
+                        <div class="card-title">🎮 Create or Join Game</div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Select Stake (ETB)</label>
+                            <div class="stake-grid">
+                                <div class="stake-btn ${state.selectedStake === 5 ? 'selected' : ''}" onclick="selectStake(5)">5 ETB</div>
+                                <div class="stake-btn ${state.selectedStake === 10 ? 'selected' : ''}" onclick="selectStake(10)">10 ETB</div>
+                                <div class="stake-btn ${state.selectedStake === 50 ? 'selected' : ''}" onclick="selectStake(50)">50 ETB</div>
+                                <div class="stake-btn ${state.selectedStake === 100 ? 'selected' : ''}" onclick="selectStake(100)">100 ETB</div>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Number of Cartelas (Max 3)</label>
+                            <select class="form-select" id="cartelaSelect" onchange="selectCartelas(this.value)">
+                                <option value="1" ${state.selectedCartelas === 1 ? 'selected' : ''}>1 Cartela</option>
+                                <option value="2" ${state.selectedCartelas === 2 ? 'selected' : ''}>2 Cartelas</option>
+                                <option value="3" ${state.selectedCartelas === 3 ? 'selected' : ''}>3 Cartelas</option>
+                            </select>
+                        </div>
+
+                        <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; margin-bottom: 15px;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                <span style="color: rgba(255,255,255,0.7);">Total Cost:</span>
+                                <span style="font-weight: 800; color: var(--accent); font-size: 20px;">${state.selectedStake * state.selectedCartelas} ETB</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: rgba(255,255,255,0.7);">Your Balance:</span>
+                                <span style="font-weight: 700;">${state.user?.balance.toFixed(0) || 0} ETB</span>
+                            </div>
+                        </div>
+
+                        <button class="btn btn-primary" onclick="createRoom()">
+                            🚀 Create Room
+                        </button>
+
+                        <div style="text-align: center; margin: 20px 0; color: rgba(255,255,255,0.5); font-weight: 700;">— OR —</div>
+
+                        <div class="form-group">
+                            <label class="form-label">Join Existing Room</label>
+                            <input type="text" id="joinRoomId" placeholder="Enter Room ID" 
+                                style="width: 100%; padding: 14px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; color: white; font-size: 16px; margin-bottom: 10px;">
+                        </div>
+
+                        <button class="btn btn-success" onclick="joinRoom()">
+                            🔗 Join Room
+                        </button>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-title">💰 Account</div>
+                        <button class="btn btn-info" onclick="showDeposit()">📥 Deposit</button>
+                        <button class="btn btn-danger" onclick="showWithdraw()">📤 Withdraw</button>
+                    </div>
+                `,
+
+                waiting: (roomData) => `
+                    <div class="waiting-screen">
+                        <div class="spinner"></div>
+                        <div style="font-size: 24px; font-weight: 700; margin-bottom: 10px;">Waiting for Players</div>
+                        
+                        <div class="room-id-box">
+                            <div style="font-size: 12px; color: rgba(255,255,255,0.6); margin-bottom: 5px;">ROOM ID</div>
+                            <div class="room-id-text">${roomData.room_id || roomData.id}</div>
+                        </div>
+
+                        <div class="card" style="margin-top: 20px;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+                                <span style="color: rgba(255,255,255,0.7);">Players</span>
+                                <span style="font-weight: 700;">${roomData.players || 1}/${roomData.max_players || 20}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+                                <span style="color: rgba(255,255,255,0.7);">Stake</span>
+                                <span style="font-weight: 700; color: var(--accent);">${roomData.stake || state.selectedStake} ETB</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: rgba(255,255,255,0.7);">Pot</span>
+                                <span style="font-weight: 700; color: var(--success);">${roomData.pot || state.selectedStake} ETB</span>
+                            </div>
+                        </div>
+
+                        <div style="color: rgba(255,255,255,0.5); font-size: 14px; margin: 20px 0;">
+                            Share Room ID with friends to play together!<br>
+                            Game starts automatically when enough players join.
+                        </div>
+
+                        <button class="btn btn-danger" onclick="leaveRoom()">Leave Room</button>
+                    </div>
+                `,
+
+                game: (roomData) => `
+                    <div class="card">
+                        <div class="card-title">🎯 Current Call</div>
+                        <div class="call-display">
+                            <div class="call-letter" id="callLetter">B</div>
+                            <div class="call-number" id="callNumber">--</div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 14px; color: rgba(255,255,255,0.6);">
+                            <span>Called: <span id="calledCount">0</span>/75</span>
+                            <span>Room: ${roomData.id || currentRoom?.id}</span>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-title">🎱 Your Cartelas</div>
+                        <div id="cartelasContainer"></div>
+                        <button class="btn btn-success" onclick="callBingo()" id="bingoBtn" style="margin-top: 15px;">
+                            🎉 CALL BINGO! 🎉
+                        </button>
+                    </div>
+                `,
+
+                deposit: () => `
+                    <div class="card">
+                        <div class="card-title">📥 Deposit Funds</div>
+                        <div class="form-group">
+                            <label class="form-label">Amount (ETB)</label>
+                            <input type="number" id="depositAmount" placeholder="Min 10 ETB" min="10"
+                                style="width: 100%; padding: 14px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; color: white; font-size: 16px;">
+                        </div>
+                        <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; margin-bottom: 15px; font-size: 14px;">
+                            <div style="margin-bottom: 10px; font-weight: 700; color: var(--accent);">Payment Methods:</div>
+                            <div>📱 Telebirr: <span style="color: var(--success);">${state.user?.config?.telebirr || 'Not set'}</span></div>
+                            <div>🏦 CBE: <span style="color: var(--success);">${state.user?.config?.cbe || 'Not set'}</span></div>
+                        </div>
+                        <button class="btn btn-primary" onclick="submitDeposit()">Request Deposit</button>
+                        <button class="btn" onclick="showScreen('lobby')" style="background: rgba(255,255,255,0.1); color: white; margin-top: 10px;">Back</button>
+                    </div>
+                `,
+
+                withdraw: () => `
+                    <div class="card">
+                        <div class="card-title">📤 Withdraw Funds</div>
+                        <div class="form-group">
+                            <label class="form-label">Amount (ETB)</label>
+                            <input type="number" id="withdrawAmount" placeholder="Min 50 ETB" min="50"
+                                style="width: 100%; padding: 14px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; color: white; font-size: 16px;">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Phone Number</label>
+                            <input type="text" id="withdrawPhone" placeholder="09xxxxxxxx"
+                                style="width: 100%; padding: 14px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; color: white; font-size: 16px;">
+                        </div>
+                        <button class="btn btn-primary" onclick="submitWithdraw()">Request Withdrawal</button>
+                        <button class="btn" onclick="showScreen('lobby')" style="background: rgba(255,255,255,0.1); color: white; margin-top: 10px;">Back</button>
+                    </div>
+                `,
+
+                win: (amount) => `
+                    <div class="card" style="text-align: center; padding: 40px; border-color: var(--success);">
+                        <div style="font-size: 64px; margin-bottom: 20px;">🎉</div>
+                        <div style="font-size: 28px; font-weight: 800; color: var(--success); margin-bottom: 10px;">YOU WON!</div>
+                        <div style="font-size: 48px; font-weight: 800; color: var(--accent); margin-bottom: 20px;">${amount} ETB</div>
+                        <button class="btn btn-primary" onclick="showScreen('lobby')">Play Again</button>
+                    </div>
+                `
+            };
+
+            main.innerHTML = screens[screen](data);
+            
+            if (screen === 'game' && data) {
+                renderCartelas();
+                startGamePolling();
+            }
+        }
+
+        function selectStake(stake) {
+            state.selectedStake = stake;
+            showScreen('lobby');
+        }
+
+        function selectCartelas(count) {
+            state.selectedCartelas = parseInt(count);
+        }
+
+        async function createRoom() {
+            const totalCost = state.selectedStake * state.selectedCartelas;
+            
+            if (state.user.balance < totalCost) {
+                showToast('Insufficient balance!', 'error');
+                return;
+            }
+
+            try {
+                const data = await apiCall('/rooms', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        stake: state.selectedStake,
+                        cartelas: state.selectedCartelas
+                    })
+                });
+
+                currentRoom = data.room;
+                cartelas = data.cartelas;
+                isHost = true;
+                showScreen('waiting', data.room);
+                startRoomPolling();
+            } catch (e) {
+                console.error('Create room error:', e);
+            }
+        }
+
+        async function joinRoom() {
+            const roomId = document.getElementById('joinRoomId')?.value.trim();
+            if (!roomId) {
+                showToast('Enter room ID', 'error');
+                return;
+            }
+
+            try {
+                const data = await apiCall(`/rooms/${roomId}/join`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        cartelas: state.selectedCartelas
+                    })
+                });
+
+                currentRoom = { id: roomId, stake: state.selectedStake };
+                cartelas = data.cartelas;
+                isHost = false;
+                showScreen('waiting', { ...data, id: roomId });
+                startRoomPolling();
+            } catch (e) {
+                console.error('Join room error:', e);
+            }
+        }
+
+        async function leaveRoom() {
+            if (!currentRoom) return;
+            
+            try {
+                // API doesn't have leave endpoint, just go back to lobby
+                currentRoom = null;
+                stopPolling();
+                await loadUser();
+            } catch (e) {
+                console.error('Leave error:', e);
+            }
+        }
+
+        let pollInterval = null;
+        function startRoomPolling() {
+            pollInterval = setInterval(async () => {
+                if (!currentRoom) return;
+                
+                try {
+                    const data = await apiCall(`/rooms/${currentRoom.id}/state`);
+                    if (data.status === 'calling' || data.status === 'active') {
+                        stopPolling();
+                        showScreen('game', data);
+                    } else {
+                        // Update waiting screen
+                        const waitingScreen = document.querySelector('.waiting-screen');
+                        if (waitingScreen && data.player_count) {
+                            showScreen('waiting', { ...currentRoom, players: data.player_count, pot: data.pot_amount });
+                        }
+                    }
+                } catch (e) {
+                    console.error('Poll error:', e);
+                }
+            }, 3000);
+        }
+
+        function startGamePolling() {
+            pollInterval = setInterval(async () => {
+                if (!currentRoom) return;
+                
+                try {
+                    const data = await apiCall(`/rooms/${currentRoom.id}/state`);
+                    updateGameDisplay(data);
+                    
+                    if (data.status === 'completed') {
+                        stopPolling();
+                        // Check if we won
+                        if (data.winner_id === state.user.telegram_id) {
+                            showScreen('win', data.win_amount || currentRoom.stake * 10);
+                        } else {
+                            showToast('Game ended', 'info');
+                            setTimeout(() => showScreen('lobby'), 2000);
+                        }
+                    }
+                } catch (e) {
+                    console.error('Game poll error:', e);
+                }
+            }, 2000);
+        }
+
+        function stopPolling() {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+        }
+
+        function updateGameDisplay(data) {
+            if (data.current_call) {
+                const match = data.current_call.match(/([BINGO])(\d+)/);
+                if (match) {
+                    document.getElementById('callLetter').textContent = match[1];
+                    document.getElementById('callNumber').textContent = match[2];
+                }
+            }
+            
+            if (data.called_numbers) {
+                calledNumbers = data.called_numbers;
+                document.getElementById('calledCount').textContent = calledNumbers.length;
+                highlightCalledNumbers();
+            }
+        }
+
+        function renderCartelas() {
+            const container = document.getElementById('cartelasContainer');
+            if (!container || !cartelas.length) return;
+            
+            let html = '';
+            cartelas.forEach((cartela, idx) => {
+                html += `<div style="margin-bottom: 20px;">`;
+                html += `<div style="font-size: 14px; color: rgba(255,255,255,0.6); margin-bottom: 8px;">Cartela ${idx + 1}</div>`;
+                html += `<div class="bingo-card">`;
+                
+                // Headers
+                ['B','I','N','G','O'].forEach(l => {
+                    html += `<div class="bingo-header">${l}</div>`;
+                });
+                
+                // Grid
+                for (let row = 0; row < 5; row++) {
+                    for (let col = 0; col < 5; col++) {
+                        const num = cartela[col * 5 + row];
+                        const cellId = `c${idx}-${col}-${row}`;
+                        const isFree = num === 0;
+                        const isMarked = markedNumbers[idx]?.includes(col * 5 + row);
+                        
+                        html += `<div class="bingo-cell ${isFree ? 'free' : ''} ${isMarked ? 'marked' : ''}" 
+                            id="${cellId}" 
+                            onclick="toggleCell(${idx}, ${col}, ${row}, ${num})">
+                            ${isFree ? '★' : num}
+                        </div>`;
+                    }
+                }
+                
+                html += `</div></div>`;
+            });
+            
+            container.innerHTML = html;
+        }
+
+        function toggleCell(cartelaIdx, col, row, num) {
+            if (num === 0) return; // Free space
+            
+            const cellId = `c${cartelaIdx}-${col}-${row}`;
+            const cell = document.getElementById(cellId);
+            
+            if (!markedNumbers[cartelaIdx]) markedNumbers[cartelaIdx] = [];
+            
+            const idx = markedNumbers[cartelaIdx].indexOf(col * 5 + row);
+            if (idx > -1) {
+                markedNumbers[cartelaIdx].splice(idx, 1);
+                cell.classList.remove('marked');
+            } else {
+                markedNumbers[cartelaIdx].push(col * 5 + row);
+                cell.classList.add('marked');
+            }
+        }
+
+        function highlightCalledNumbers() {
+            if (!cartelas.length) return;
+            
+            cartelas.forEach((cartela, cIdx) => {
+                cartela.forEach((num, pos) => {
+                    if (calledNumbers.includes(num)) {
+                        const col = Math.floor(pos / 5);
+                        const row = pos % 5;
+                        const cell = document.getElementById(`c${cIdx}-${col}-${row}`);
+                        if (cell && !cell.classList.contains('free')) {
+                            cell.classList.add('called');
+                        }
+                    }
+                });
+            });
+        }
+
+        async function callBingo() {
+            if (!currentRoom) return;
+            
+            try {
+                // Mark all marked numbers on server
+                const data = await apiCall(`/rooms/${currentRoom.id}/mark`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        cartela_index: 0,
+                        number_index: markedNumbers[0]?.[0] || 0
+                    })
+                });
+                
+                if (data.bingo) {
+                    stopPolling();
+                    showScreen('win', data.win_amount || currentRoom.stake * 10);
+                } else {
+                    showToast('Not a valid bingo yet!', 'error');
+                }
+            } catch (e) {
+                console.error('Bingo error:', e);
+            }
+        }
+
+        function showDeposit() {
+            showScreen('deposit');
+        }
+
+        function showWithdraw() {
+            showScreen('withdraw');
+        }
+
+        async function submitDeposit() {
+            const amount = parseFloat(document.getElementById('depositAmount').value);
+            if (!amount || amount < 10) {
+                showToast('Minimum deposit is 10 ETB', 'error');
+                return;
+            }
+
+            try {
+                await apiCall('/user/deposit', {
+                    method: 'POST',
+                    body: JSON.stringify({ amount })
+                });
+                showToast('Deposit request submitted!', 'success');
+                setTimeout(() => showScreen('lobby'), 1500);
+            } catch (e) {
+                console.error('Deposit error:', e);
+            }
+        }
+
+        async function submitWithdraw() {
+            const amount = parseFloat(document.getElementById('withdrawAmount').value);
+            const phone = document.getElementById('withdrawPhone').value;
+            
+            if (!amount || amount < 50) {
+                showToast('Minimum withdrawal is 50 ETB', 'error');
+                return;
+            }
+            if (!phone) {
+                showToast('Enter phone number', 'error');
+                return;
+            }
+
+            try {
+                await apiCall('/user/withdraw', {
+                    method: 'POST',
+                    body: JSON.stringify({ amount, phone_number: phone })
+                });
+                showToast('Withdrawal request submitted!', 'success');
+                setTimeout(() => showScreen('lobby'), 1500);
+            } catch (e) {
+                console.error('Withdraw error:', e);
+            }
+        }
+
+        function showToast(message, type = 'info') {
+            const existing = document.querySelector('.toast');
+            if (existing) existing.remove();
+
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.style.borderColor = type === 'error' ? 'var(--danger)' : type === 'success' ? 'var(--success)' : 'var(--accent)';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        // Start the app
+        init();
+    </script>
+</body>
+</html>
