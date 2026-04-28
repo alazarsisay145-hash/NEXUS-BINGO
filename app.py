@@ -725,10 +725,13 @@ class GameManager:
 
 game_manager = GameManager()
 
-# ==================== FRONTEND ROUTES ====================
+# ==================== FRONTEND ROUTES 
+import os
+
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return send_from_directory(os.path.join(app.root_path, 'static'), 'index.html')
+
 
 @app.route('/admin')
 def admin_page():
