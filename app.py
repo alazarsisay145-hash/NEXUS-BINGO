@@ -17,6 +17,16 @@ from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask import render_template
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/admin')
+def admin_page():
+    return render_template('admin.html')
+
 from functools import wraps
 
 logging.basicConfig(
