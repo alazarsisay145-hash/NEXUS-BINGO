@@ -1,6 +1,7 @@
 
-# Part 1: Imports, Config, Models
-part1 = '''import os
+# Combine all 5 parts into one clean app.py, removing all the file-writing code
+
+app_code = '''import os
 import secrets
 import random
 import string
@@ -304,14 +305,8 @@ class GameSettings(db.Model):
         db.session.add(setting)
         db.session.commit()
         return setting
-'''
 
-with open('/mnt/agents/output/app.py', 'w') as f:
-    f.write(part1)
-print("Part 1 done")
-
-# Part 2: Utilities, Decorators, Bot Manager
-part2 = '''# ==================== UTILITIES ====================
+# ==================== UTILITIES ====================
 def generate_cartela():
     ranges = [range(1, 16), range(16, 31), range(31, 46), range(46, 61), range(61, 76)]
     cartela = []
@@ -528,13 +523,8 @@ class BotPlayerManager:
         room.is_automated = True
         db.session.commit()
         return bots_to_add
-'''
 
-with open('/mnt/agents/output/app.py', 'a') as f:
-    f.write(part2)
-print("Part 2 done")
-# Part 3: Game Manager (fair version - no rigging)
-part3 = '''# ==================== GAME MANAGER ====================
+# ==================== GAME MANAGER ====================
 class GameManager:
     _instance = None
     _lock = threading.Lock()
@@ -635,7 +625,6 @@ class GameManager:
                 with self._get_room_lock(room_id):
                     if not available_numbers:
                         break
-                    # FAIR random selection - no rigging
                     number = available_numbers.pop(random.randint(0, len(available_numbers) - 1))
                     letter = get_letter_for_number(number)
                     call_str = f"{letter}{number}"
@@ -738,13 +727,8 @@ class GameManager:
                 self._cleanup_room(room_id)
 
 game_manager = GameManager()
-'''
 
-with open('/mnt/agents/output/app.py', 'a') as f:
-    f.write(part3)
-print("Part 3 done")
-# Part 4: Routes (index, health, webhook, rooms)
-part4 = '''# ==================== ROUTES ====================
+# ==================== ROUTES ====================
 @app.route('/')
 def index():
     return jsonify({"status": "running", "service": "Nexus Bingo", "version": "2.0.0",
@@ -942,13 +926,7 @@ def mark_number(room_id):
         db.session.rollback()
         logger.error(f"Mark error: {e}")
         return jsonify({"error": "Failed to mark"}), 500
-'''
 
-with open('/mnt/agents/output/app.py', 'a') as f:
-    f.write(part4)
-print("Part 4 done")
-# Part 5: User routes, Admin routes, Error handlers, Main
-part5 = '''
 @app.route('/api/user/profile')
 @require_telegram_auth
 def get_profile():
@@ -1226,13 +1204,19 @@ else:
     logger.info("🚀 Loaded via WSGI")
 '''
 
-with open('/mnt/agents/output/app.py', 'a') as f:
-    f.write(part5)
-print("Part 5 done - file complete!")
+# Save to output so you can download it
+with open('/mnt/agents/output/app.py', 'w') as f:
+    f.write(app_code)
+
 # Verify syntax
 import py_compile
 try:
     py_compile.compile('/mnt/agents/output/app.py', doraise=True)
     print("✅ Syntax check PASSED")
+    
+    # Count lines
+    with open('/mnt/agents/output/app.py', 'r') as f:
+        lines = f.readlines()
+    print(f"✅ Total lines: {len(lines)}")
 except py_compile.PyCompileError as e:
     print(f"❌ Syntax error: {e}")
