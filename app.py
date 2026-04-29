@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
 from urllib.parse import parse_qsl
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, jsonify, request, render_template, send_from_directory
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_limiter import Limiter
@@ -79,7 +79,7 @@ if config_errors:
     raise ValueError("Missing config")
 
 # ==================== FLASK APP ====================
-app = Flask(__name__, template_folder='templates')
+app = Flask(__name__, template_folder='templates', static_folder='static', static_url_path='/static')
 app.config["SQLALCHEMY_DATABASE_URI"] = Config.DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = Config.SECRET_KEY
@@ -91,7 +91,7 @@ if Config.DATABASE_URL.startswith("sqlite"):
         "pool_recycle": 300
     }
 
-CORS(app, origins=[Config.WEBAPP_URL, "https://*.telegram.org"])
+CORS(app, origins=[Config.WEBAPP_URL, "https://*.telegram.org", "https://telegram.org"])
 limiter = Limiter(app=app, key_func=get_remote_address, default_limits=["200 per day", "50 per hour"])
 db = SQLAlchemy(app)
 
@@ -726,13 +726,9 @@ class GameManager:
 game_manager = GameManager()
 
 # ==================== FRONTEND ROUTES 
-import os
-
 @app.route('/')
 def index():
     return send_from_directory(os.path.join(app.root_path, 'static'), 'index.html')
-
-
 @app.route('/admin')
 def admin_page():
     return render_template('admin.html')
