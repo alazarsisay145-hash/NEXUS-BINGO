@@ -359,7 +359,7 @@ def validate_telegram_init_data(init_data):
         if not received_hash:
             raise ValueError("No hash found")
         data_check_pairs = [f"{k}={v}" for k, v in sorted(parsed_data.items())]
-        data_check_string = "\\n".join(data_check_pairs)
+        data_check_string = "\n".join(data_check_pairs)
         secret_key = hmac.new(key=b"WebAppData", msg=Config.BOT_TOKEN.encode(), digestmod=hashlib.sha256).digest()
         calculated_hash = hmac.new(key=secret_key, msg=data_check_string.encode(), digestmod=hashlib.sha256).hexdigest()
         if not hmac.compare_digest(calculated_hash, received_hash):
