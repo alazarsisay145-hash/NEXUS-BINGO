@@ -38,9 +38,9 @@ def get_database_url():
     return raw_url
 
 class Config:
-    BOT_TOKEN = os.environ.get("BOT_TOKEN")
-    BOT_USERNAME = os.environ.get("BOT_USERNAME", "@BingoBot")
-    _admin_raw = os.environ.get("ADMIN_ID") or os.environ.get("ADMIN_IDS", "")
+    BOT_TOKEN = os.environ.get("8615731945:AAHvNqyvipJKDzJMUs_KPFtcmqzE6FN_TpA")
+    BOT_USERNAME = os.environ.get("BOT_USERNAME", "@neXUSSBINGObot")
+    _admin_raw = os.environ.get("ADMIN_ID") or os.environ.get("8461485965", "")
     ADMIN_ID = None
     ADMIN_IDS = set()
     try:
