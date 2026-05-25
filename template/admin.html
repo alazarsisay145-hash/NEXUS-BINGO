@@ -1,415 +1,417 @@
-
-# Complete updated admin.html with all features
-admin_html = '''<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Nexus Bingo - Admin Panel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEXUS BINGO - Admin</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
-        :root { --primary: #6366f1; --accent: #f59e0b; --success: #10b981; --danger: #ef4444; --dark: #0f172a; --darker: #020617; --card: rgba(30, 41, 59, 0.9); }
-        body { background: linear-gradient(135deg, var(--darker) 0%, #1e1b4b 50%, var(--dark) 100%); color: white; min-height: 100vh; padding-bottom: 80px; }
-        .header { background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); padding: 12px 16px; position: fixed; top: 0; left: 0; right: 0; z-index: 100; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); }
-        .logo { font-size: 20px; font-weight: 800; background: linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .badge { background: var(--danger); color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; }
-        .main { padding-top: 80px; max-width: 900px; margin: 0 auto; padding-left: 16px; padding-right: 16px; padding-bottom: 40px; }
-        .card { background: var(--card); border-radius: 16px; padding: 20px; margin-bottom: 16px; border: 1px solid rgba(255,255,255,0.1); }
-        .card-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
-        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 20px; }
-        .stat-box { background: rgba(255,255,255,0.05); border-radius: 12px; padding: 14px; text-align: center; }
-        .stat-value { font-size: 24px; font-weight: 800; color: var(--accent); }
-        .stat-label { font-size: 11px; color: rgba(255,255,255,0.6); margin-top: 4px; text-transform: uppercase; }
-        .btn { padding: 10px 16px; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; transition: all 0.3s; }
-        .btn-success { background: var(--success); color: white; }
-        .btn-danger { background: var(--danger); color: white; }
-        .btn-primary { background: var(--primary); color: white; }
-        .btn-warning { background: var(--accent); color: black; }
-        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .btn-small { padding: 6px 12px; font-size: 12px; }
-        table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        th { text-align: left; padding: 10px; color: rgba(255,255,255,0.6); font-size: 11px; text-transform: uppercase; border-bottom: 1px solid rgba(255,255,255,0.1); }
-        td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); }
-        .amount { font-weight: 700; color: var(--accent); }
-        .actions { display: flex; gap: 6px; flex-wrap: wrap; }
-        .form-group { margin-bottom: 16px; }
-        .form-label { display: block; font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.7); margin-bottom: 6px; text-transform: uppercase; }
-        .form-input { width: 100%; padding: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; font-size: 14px; }
-        .tabs { display: flex; gap: 8px; margin-bottom: 16px; overflow-x: auto; }
-        .tab { padding: 10px 16px; border-radius: 8px; background: rgba(255,255,255,0.05); border: none; color: rgba(255,255,255,0.7); font-weight: 600; cursor: pointer; white-space: nowrap; }
-        .tab.active { background: var(--primary); color: white; }
-        .hidden { display: none !important; }
-        .toast { position: fixed; top: 80px; left: 50%; transform: translateX(-50%); background: rgba(15, 23, 42, 0.95); color: white; padding: 12px 20px; border-radius: 8px; border: 1px solid var(--accent); z-index: 1000; }
-        .empty { text-align: center; padding: 40px; color: rgba(255,255,255,0.4); }
-        .spinner { width: 30px; height: 30px; border: 3px solid rgba(255,255,255,0.1); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin: 20px auto; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f0f23;
+            color: #fff;
+            min-height: 100vh;
+        }
+        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 24px;
+            border-radius: 16px;
+            margin-bottom: 24px;
+        }
+        .header h1 { font-size: 24px; font-weight: 800; }
+        .header p { opacity: 0.8; margin-top: 4px; }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: #1a1a2e;
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid #2a2a4e;
+        }
+        .stat-card .label { font-size: 13px; color: #8892b0; margin-bottom: 8px; }
+        .stat-card .value { font-size: 28px; font-weight: 700; color: #38ef7d; }
+        .stat-card .sub { font-size: 12px; color: #667eea; margin-top: 4px; }
+        
+        .section {
+            background: #1a1a2e;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid #2a2a4e;
+        }
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: #a78bfa;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn-primary { background: #667eea; color: white; }
+        .btn-success { background: #11998e; color: white; }
+        .btn-danger { background: #eb3349; color: white; }
+        .btn-secondary { background: #2a2a4e; color: #fff; }
+        .btn-sm { padding: 6px 12px; font-size: 12px; }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #2a2a4e;
+        }
+        th { color: #8892b0; font-weight: 500; font-size: 12px; text-transform: uppercase; }
+        tr:hover { background: #16213e; }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .badge-pending { background: #f59e0b; color: #000; }
+        .badge-approved { background: #10b981; color: #fff; }
+        .badge-rejected { background: #ef4444; color: #fff; }
+        
+        .input {
+            padding: 10px 14px;
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 10px;
+            color: #fff;
+            font-size: 14px;
+            margin-right: 8px;
+        }
+        .input:focus { outline: none; border-color: #667eea; }
+        
+        .toggle-switch {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .toggle {
+            width: 50px;
+            height: 26px;
+            background: #2a2a4e;
+            border-radius: 13px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .toggle.active { background: #667eea; }
+        .toggle::after {
+            content: '';
+            position: absolute;
+            width: 22px; height: 22px;
+            background: #fff;
+            border-radius: 50%;
+            top: 2px; left: 2px;
+            transition: transform 0.3s;
+        }
+        .toggle.active::after { transform: translateX(24px); }
+        
+        .empty { text-align: center; padding: 40px; color: #8892b0; }
+        .loading { text-align: center; padding: 40px; }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 3px solid #667eea;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
         @keyframes spin { to { transform: rotate(360deg); } }
-        .toggle-switch { position: relative; display: inline-block; width: 50px; height: 26px; }
-        .toggle-switch input { opacity: 0; width: 0; height: 0; }
-        .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.2); transition: .4s; border-radius: 26px; }
-        .toggle-slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
-        input:checked + .toggle-slider { background-color: var(--success); }
-        input:checked + .toggle-slider:before { transform: translateX(24px); }
-        .room-card { background: rgba(255,255,255,0.03); border-radius: 12px; padding: 16px; margin-bottom: 12px; border: 1px solid rgba(255,255,255,0.05); }
-        .room-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-        .room-id { font-weight: 800; color: var(--accent); font-size: 16px; }
-        .room-status { font-size: 12px; padding: 4px 10px; border-radius: 20px; font-weight: 700; }
-        .status-waiting { background: rgba(245, 158, 11, 0.2); color: var(--accent); }
-        .status-calling { background: rgba(99, 102, 241, 0.2); color: var(--primary); }
-        .status-completed { background: rgba(16, 185, 129, 0.2); color: var(--success); }
-        .cartela-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; margin-top: 10px; }
-        .cartela-btn { aspect-ratio: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.2s; color: white; }
-        .cartela-btn:hover { background: var(--primary); }
-        .cartela-btn.owned { background: var(--success); border-color: var(--success); }
-        .cartela-btn.bot { background: rgba(239, 68, 68, 0.3); border-color: var(--danger); }
-        .modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
-        .modal-content { background: var(--card); border-radius: 16px; padding: 24px; max-width: 400px; width: 100%; max-height: 80vh; overflow-y: auto; }
-        .modal-title { font-size: 20px; font-weight: 700; margin-bottom: 16px; }
-        .close-btn { position: absolute; top: 20px; right: 20px; background: none; border: none; color: white; font-size: 24px; cursor: pointer; }
-        .deposit-screenshot { max-width: 100%; border-radius: 8px; margin: 10px 0; }
+        
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #1a1a2e;
+            color: #fff;
+            padding: 14px 24px;
+            border-radius: 12px;
+            font-size: 14px;
+            z-index: 2000;
+            border: 1px solid #667eea;
+            transform: translateY(100px);
+            transition: transform 0.3s;
+        }
+        .toast.show { transform: translateY(0); }
     </style>
 </head>
 <body>
-    <header class="header">
-        <div class="logo">⚡ NEXUS BINGO ADMIN</div>
-        <div class="badge" id="adminBadge">ADMIN</div>
-    </header>
-
-    <main class="main">
-        <!-- Dashboard Stats -->
-        <div class="card" id="statsCard">
-            <div class="card-title">📊 Dashboard</div>
-            <div class="stats-grid" id="statsGrid">
-                <div class="stat-box"><div class="spinner"></div></div>
+    <div class="container">
+        <div class="header">
+            <h1>🔧 NEXUS BINGO ADMIN</h1>
+            <p>Admin: Alazar | Telebirr: 0936719379</p>
+        </div>
+        
+        <!-- Stats -->
+        <div class="stats-grid" id="stats">
+            <div class="loading"><div class="spinner"></div></div>
+        </div>
+        
+        <!-- Settings -->
+        <div class="section">
+            <div class="section-title">⚙️ Settings</div>
+            <div class="toggle-switch">
+                <span>🤡 Rigged Mode (Bots Always Win)</span>
+                <div class="toggle" id="rigged-toggle" onclick="toggleRigged()"></div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <span>House Cut %:</span>
+                <input type="number" class="input" id="house-cut" value="10" min="0" max="50" style="width: 80px;">
+                <button class="btn btn-primary btn-sm" onclick="updateHouseCut()">Save</button>
             </div>
         </div>
-
-        <!-- Game Settings -->
-        <div class="card">
-            <div class="card-title">⚙️ Game Settings</div>
-            <div class="form-group">
-                <label class="form-label">House Cut (%)</label>
-                <div style="display: flex; gap: 10px;">
-                    <input type="number" id="houseCut" class="form-input" placeholder="10" min="0" max="50">
-                    <button class="btn btn-primary" onclick="updateHouseCut()">Save</button>
-                </div>
+        
+        <!-- Pending Deposits -->
+        <div class="section">
+            <div class="section-title">
+                <span>💰 Pending Deposits</span>
+                <button class="btn btn-secondary btn-sm" onclick="loadDeposits()">🔄 Refresh</button>
             </div>
-            <div class="form-group">
-                <label class="form-label">Telebirr Number</label>
-                <input type="text" id="telebirrNumber" class="form-input" placeholder="0936719379">
-            </div>
-            <div class="form-group">
-                <label class="form-label">CBE Account</label>
-                <input type="text" id="cbeAccount" class="form-input" placeholder="1000xxxxxx">
-            </div>
-            <button class="btn btn-success" onclick="updatePaymentSettings()">Update Payment Info</button>
-        </div>
-
-        <!-- Tabs -->
-        <div class="tabs">
-            <button class="tab active" onclick="showTab('deposits')">📥 Deposits</button>
-            <button class="tab" onclick="showTab('withdrawals')">📤 Withdrawals</button>
-            <button class="tab" onclick="showTab('rooms')">🎮 Rooms</button>
-        </div>
-
-        <!-- Deposits Tab -->
-        <div id="depositsTab">
-            <div class="card">
-                <div class="card-title">📥 Pending Deposits</div>
-                <div id="depositsList"><div class="empty">Loading...</div></div>
+            <div id="deposits-list">
+                <div class="loading"><div class="spinner"></div></div>
             </div>
         </div>
-
-        <!-- Withdrawals Tab -->
-        <div id="withdrawalsTab" class="hidden">
-            <div class="card">
-                <div class="card-title">📤 Pending Withdrawals</div>
-                <div id="withdrawalsList"><div class="empty">Loading...</div></div>
+        
+        <!-- Pending Withdrawals -->
+        <div class="section">
+            <div class="section-title">
+                <span>💸 Pending Withdrawals</span>
+                <button class="btn btn-secondary btn-sm" onclick="loadWithdrawals()">🔄 Refresh</button>
             </div>
-        </div>
-
-        <!-- Rooms Tab -->
-        <div id="roomsTab" class="hidden">
-            <div class="card">
-                <div class="card-title">🎮 Game Rooms</div>
-                <div id="roomsList"><div class="empty">Loading...</div></div>
+            <div id="withdrawals-list">
+                <div class="loading"><div class="spinner"></div></div>
             </div>
-        </div>
-    </main>
-
-    <!-- Cartela Modal -->
-    <div id="cartelaModal" class="modal hidden" onclick="closeModal(event)">
-        <div class="modal-content" onclick="event.stopPropagation()">
-            <div class="modal-title" id="modalTitle">Cartela Details</div>
-            <div id="modalBody"></div>
-            <button class="btn btn-danger" onclick="closeModal()" style="width: 100%; margin-top: 16px;">Close</button>
         </div>
     </div>
-
+    
+    <div class="toast" id="toast"></div>
     <script>
-        const API_URL = window.location.origin + '/api';
+        const API_BASE = '';
         let tg = window.Telegram?.WebApp;
-        let currentRooms = [];
-
-        async function apiCall(endpoint, options = {}) {
-            const url = `${API_URL}${endpoint}`;
-            const headers = {
-                'Content-Type': 'application/json',
-                'X-Telegram-Init-Data': tg?.initData || ''
-            };
-            const res = await fetch(url, { ...options, headers });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Request failed');
-            return data;
+        
+        function getAuthHeaders() {
+            if (tg?.initData) return { 'X-Telegram-Init-Data': tg.initData };
+            return {};
         }
-
-        async function init() {
-            if (tg) { tg.ready(); tg.expand(); }
-            try {
-                await loadStats();
-                await loadDeposits();
-                await loadWithdrawals();
-                await loadRooms();
-            } catch (e) {
-                showToast('Auth failed. Open from Telegram as admin.', 'error');
-            }
+        
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
         }
-
+        
         async function loadStats() {
-            const data = await apiCall('/admin/stats');
-            document.getElementById('statsGrid').innerHTML = `
-                <div class="stat-box"><div class="stat-value">${data.users?.total || 0}</div><div class="stat-label">Total Users</div></div>
-                <div class="stat-box"><div class="stat-value">${data.games?.active || 0}</div><div class="stat-label">Active Games</div></div>
-                <div class="stat-box"><div class="stat-value">${data.games?.completed || 0}</div><div class="stat-label">Completed</div></div>
-                <div class="stat-box"><div class="stat-value">${data.financial?.pending_deposits || 0}</div><div class="stat-label">Pending Deposits</div></div>
-                <div class="stat-box"><div class="stat-value">${data.financial?.pending_withdrawals || 0}</div><div class="stat-label">Pending Withdrawals</div></div>
-                <div class="stat-box"><div class="stat-value">${(data.financial?.total_deposits || 0).toFixed(0)}</div><div class="stat-label">Total Deposits</div></div>
-            `;
-            document.getElementById('houseCut').value = data.financial?.house_cut_percent || 10;
-        }
-
-        async function loadDeposits() {
-            const data = await apiCall('/admin/deposits');
-            const container = document.getElementById('depositsList');
-            if (!data.length) { container.innerHTML = '<div class="empty">No pending deposits</div>'; return; }
-            container.innerHTML = `
-                <table>
-                    <tr><th>ID</th><th>User</th><th>Amount</th><th>Method</th><th>Phone</th><th>Ref</th><th>Date</th><th>Actions</th></tr>
-                    ${data.map(d => `
-                        <tr>
-                            <td>#${d.id}</td>
-                            <td>${d.first_name || 'Unknown'}<br><small style="color:rgba(255,255,255,0.4)">@${d.username || 'N/A'}</small></td>
-                            <td class="amount">${d.amount.toFixed(0)} ETB</td>
-                            <td>${d.payment_method?.toUpperCase() || 'N/A'}</td>
-                            <td>${d.phone_number || 'N/A'}</td>
-                            <td>${d.transaction_ref || 'N/A'}</td>
-                            <td>${new Date(d.created_at).toLocaleDateString()}</td>
-                            <td class="actions">
-                                ${d.screenshot_file_id ? `<button class="btn btn-primary btn-small" onclick="viewScreenshot('${d.screenshot_file_id}', '${d.first_name}', ${d.amount})">📷</button>` : ''}
-                                <button class="btn btn-success btn-small" onclick="approveDeposit(${d.id}, true)">✓</button>
-                                <button class="btn btn-danger btn-small" onclick="approveDeposit(${d.id}, false)">✕</button>
-                            </td>
-                        </tr>
-                    `).join('')}
-                </table>`;
-        }
-
-        async function loadWithdrawals() {
-            const data = await apiCall('/admin/withdrawals');
-            const container = document.getElementById('withdrawalsList');
-            if (!data.length) { container.innerHTML = '<div class="empty">No pending withdrawals</div>'; return; }
-            container.innerHTML = `
-                <table>
-                    <tr><th>ID</th><th>User</th><th>Amount</th><th>Phone</th><th>Date</th><th>Actions</th></tr>
-                    ${data.map(w => `
-                        <tr>
-                            <td>#${w.id}</td>
-                            <td>${w.first_name || 'Unknown'}<br><small style="color:rgba(255,255,255,0.4)">@${w.username || 'N/A'}</small></td>
-                            <td class="amount">${w.amount.toFixed(0)} ETB</td>
-                            <td>${w.phone_number || 'N/A'}</td>
-                            <td>${new Date(w.created_at).toLocaleDateString()}</td>
-                            <td class="actions">
-                                <button class="btn btn-success btn-small" onclick="approveWithdrawal(${w.id}, true)">✓</button>
-                                <button class="btn btn-danger btn-small" onclick="approveWithdrawal(${w.id}, false)">✕</button>
-                            </td>
-                        </tr>
-                    `).join('')}
-                </table>`;
-        }
-
-        async function loadRooms() {
-            const data = await apiCall('/admin/rooms');
-            currentRooms = data;
-            const container = document.getElementById('roomsList');
-            if (!data.length) { container.innerHTML = '<div class="empty">No rooms found</div>'; return; }
-            
-            container.innerHTML = data.map(room => {
-                const statusClass = room.status === 'waiting' ? 'status-waiting' : room.status === 'calling' ? 'status-calling' : 'status-completed';
-                const canForceStart = room.status === 'waiting';
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/stats`, { headers: getAuthHeaders() });
+                const data = await res.json();
+                if (data.error) { showToast('Unauthorized'); return; }
                 
-                // Build cartela buttons 1-100
-                let cartelaButtons = '';
-                for (let i = 1; i <= 100; i++) {
-                    const owner = room.player_details?.find(p => p.cartela_count >= i);
-                    const isBot = owner?.is_fake;
-                    const btnClass = owner ? (isBot ? 'bot' : 'owned') : '';
-                    cartelaButtons += `<button class="cartela-btn ${btnClass}" onclick="viewCartela('${room.id}', ${i}, ${owner ? owner.user_id : 'null'})">${i}</button>`;
-                }
-                
-                return `
-                    <div class="room-card">
-                        <div class="room-header">
-                            <div>
-                                <div class="room-id">Room ${room.id}</div>
-                                <div style="font-size: 12px; color: rgba(255,255,255,0.5); margin-top: 4px;">Stake: ${room.stake} ETB | Pot: ${room.pot} ETB</div>
-                            </div>
-                            <div style="text-align: right;">
-                                <span class="room-status ${statusClass}">${room.status.toUpperCase()}</span>
-                                ${canForceStart ? `<button class="btn btn-warning btn-small" onclick="forceStart('${room.id}')" style="margin-top: 8px;">🚀 Force Start</button>` : ''}
-                            </div>
-                        </div>
-                        <div style="font-size: 13px; color: rgba(255,255,255,0.6); margin-bottom: 10px;">
-                            Players: ${room.players}/${room.max_players} | Cartelas: ${room.total_cartelas}
-                        </div>
-                        <div class="cartela-grid">${cartelaButtons}</div>
+                document.getElementById('stats').innerHTML = `
+                    <div class="stat-card">
+                        <div class="label">Total Users</div>
+                        <div class="value">${data.users.total}</div>
+                        <div class="sub">${data.users.bots} bots</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Active Games</div>
+                        <div class="value">${data.games.active}</div>
+                        <div class="sub">${data.games.completed} completed</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Pending Deposits</div>
+                        <div class="value">${data.financial.pending_deposits}</div>
+                        <div class="sub">${data.financial.pending_withdrawals} withdrawals</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Total Deposited</div>
+                        <div class="value">${data.financial.total_deposits.toFixed(0)}</div>
+                        <div class="sub">${data.financial.total_withdrawals.toFixed(0)} withdrawn</div>
                     </div>
                 `;
-            }).join('');
+                
+                if (data.settings.rigged_mode) {
+                    document.getElementById('rigged-toggle').classList.add('active');
+                }
+            } catch (e) {
+                showToast('Failed to load stats');
+            }
         }
-
+        
+        async function loadDeposits() {
+            const list = document.getElementById('deposits-list');
+            list.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+            
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/deposits`, { headers: getAuthHeaders() });
+                const deposits = await res.json();
+                if (!Array.isArray(deposits) || deposits.length === 0) {
+                    list.innerHTML = '<div class="empty">No pending deposits</div>';
+                    return;
+                }
+                
+                list.innerHTML = `
+                    <table>
+                        <tr><th>ID</th><th>User</th><th>Amount</th><th>Date</th><th>Actions</th></tr>
+                        ${deposits.map(d => `
+                            <tr>
+                                <td>#${d.id}</td>
+                                <td>${d.first_name} (@${d.username || 'N/A'})</td>
+                                <td>${d.amount.toFixed(0)} ETB</td>
+                                <td>${new Date(d.created_at).toLocaleDateString()}</td>
+                                <td>
+                                    <button class="btn btn-success btn-sm" onclick="approveDeposit(${d.id}, true)">✅</button>
+                                    <button class="btn btn-danger btn-sm" onclick="approveDeposit(${d.id}, false)">❌</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </table>
+                `;
+            } catch (e) {
+                list.innerHTML = '<div class="empty">Failed to load</div>';
+            }
+        }
+        
+        async function loadWithdrawals() {
+            const list = document.getElementById('withdrawals-list');
+            list.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+            
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/withdrawals`, { headers: getAuthHeaders() });
+                const withdrawals = await res.json();
+                if (!Array.isArray(withdrawals) || withdrawals.length === 0) {
+                    list.innerHTML = '<div class="empty">No pending withdrawals</div>';
+                    return;
+                }
+                
+                list.innerHTML = `
+                    <table>
+                        <tr><th>ID</th><th>User</th><th>Amount</th><th>Phone</th><th>Actions</th></tr>
+                        ${withdrawals.map(w => `
+                            <tr>
+                                <td>#${w.id}</td>
+                                <td>${w.first_name} (@${w.username || 'N/A'})</td>
+                                <td>${w.amount.toFixed(0)} ETB</td>
+                                <td>${w.phone_number || 'N/A'}</td>
+                                <td>
+                                    <button class="btn btn-success btn-sm" onclick="approveWithdrawal(${w.id}, true)">✅</button>
+                                    <button class="btn btn-danger btn-sm" onclick="approveWithdrawal(${w.id}, false)">❌</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </table>
+                `;
+            } catch (e) {
+                list.innerHTML = '<div class="empty">Failed to load</div>';
+            }
+        }
+        
         async function approveDeposit(id, approved) {
             try {
-                await apiCall(`/admin/deposits/${id}/approve`, {
+                const res = await fetch(`${API_BASE}/api/admin/deposits/${id}/approve`, {
                     method: 'POST',
+                    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
                     body: JSON.stringify({ approved })
                 });
-                showToast(approved ? 'Deposit approved!' : 'Deposit rejected', 'success');
-                await loadStats();
-                await loadDeposits();
+                const data = await res.json();
+                if (data.success) {
+                    showToast(approved ? '✅ Deposit approved!' : '❌ Deposit rejected!');
+                    loadDeposits();
+                    loadStats();
+                }
             } catch (e) {
-                showToast(e.message, 'error');
+                showToast('Action failed');
             }
         }
-
+        
         async function approveWithdrawal(id, approved) {
             try {
-                await apiCall(`/admin/withdrawals/${id}/approve`, {
+                const res = await fetch(`${API_BASE}/api/admin/withdrawals/${id}/approve`, {
                     method: 'POST',
+                    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
                     body: JSON.stringify({ approved })
                 });
-                showToast(approved ? 'Withdrawal approved!' : 'Withdrawal rejected', 'success');
-                await loadStats();
-                await loadWithdrawals();
+                const data = await res.json();
+                if (data.success) {
+                    showToast(approved ? '✅ Withdrawal approved!' : '❌ Withdrawal rejected!');
+                    loadWithdrawals();
+                    loadStats();
+                }
             } catch (e) {
-                showToast(e.message, 'error');
+                showToast('Action failed');
             }
         }
-
-        async function forceStart(roomId) {
-            if (!confirm('Force start this game? It will begin immediately regardless of player count.')) return;
-            try {
-                await apiCall(`/admin/rooms/${roomId}/force-start`, { method: 'POST' });
-                showToast('Game force-started!', 'success');
-                await loadRooms();
-                await loadStats();
-            } catch (e) {
-                showToast(e.message, 'error');
-            }
-        }
-
-        function viewCartela(roomId, cartelaNum, userId) {
-            const room = currentRooms.find(r => r.id === roomId);
-            const player = room?.player_details?.find(p => p.user_id === userId);
+        
+        async function toggleRigged() {
+            const toggle = document.getElementById('rigged-toggle');
+            const enabled = !toggle.classList.contains('active');
             
-            document.getElementById('modalTitle').textContent = `Cartela #${cartelaNum}`;
-            document.getElementById('modalBody').innerHTML = player ? `
-                <div style="margin-bottom: 16px;">
-                    <div style="font-size: 14px; color: rgba(255,255,255,0.6);">Owner</div>
-                    <div style="font-size: 18px; font-weight: 700;">User ID: ${player.user_id}</div>
-                    <div style="font-size: 14px; color: ${player.is_fake ? 'var(--danger)' : 'var(--success)'};">
-                        ${player.is_fake ? '🤖 Bot' : '👤 Real Player'}
-                    </div>
-                    <div style="font-size: 14px; margin-top: 8px;">Cartelas owned: ${player.cartela_count}</div>
-                    ${player.is_host ? '<div style="font-size: 14px; color: var(--accent); margin-top: 4px;">👑 Host</div>' : ''}
-                </div>
-            ` : `
-                <div style="text-align: center; padding: 20px; color: rgba(255,255,255,0.5);">
-                    <div style="font-size: 48px; margin-bottom: 10px;">🎫</div>
-                    <div>This cartela is not purchased yet</div>
-                </div>
-            `;
-            document.getElementById('cartelaModal').classList.remove('hidden');
-        }
-
-        function viewScreenshot(fileId, userName, amount) {
-            // Use Telegram Bot API to get file URL and display
-            document.getElementById('modalTitle').textContent = `Deposit Screenshot`;
-            document.getElementById('modalBody').innerHTML = `
-                <div style="margin-bottom: 16px;">
-                    <div style="font-size: 14px; color: rgba(255,255,255,0.6);">From: ${userName}</div>
-                    <div style="font-size: 18px; font-weight: 700; color: var(--accent);">${amount} ETB</div>
-                </div>
-                <div style="background: rgba(255,255,255,0.05); padding: 20px; border-radius: 12px; text-align: center;">
-                    <div style="font-size: 48px; margin-bottom: 10px;">📷</div>
-                    <div style="font-size: 14px; color: rgba(255,255,255,0.6);">Screenshot ID: ${fileId}</div>
-                    <div style="font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 8px;">
-                        Screenshot forwarded to your Telegram DM. Check your private messages with the bot.
-                    </div>
-                </div>
-            `;
-            document.getElementById('cartelaModal').classList.remove('hidden');
-        }
-
-        function closeModal(event) {
-            if (!event || event.target === document.getElementById('cartelaModal')) {
-                document.getElementById('cartelaModal').classList.add('hidden');
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/settings`, {
+                    method: 'POST',
+                    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ rigged_mode: enabled })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    toggle.classList.toggle('active', enabled);
+                    showToast(enabled ? '🤡 Rigged mode ON!' : '✅ Fair mode ON!');
+                }
+            } catch (e) {
+                showToast('Failed to toggle');
             }
         }
-
+        
         async function updateHouseCut() {
-            const cut = parseFloat(document.getElementById('houseCut').value);
-            if (cut < 0 || cut > 50) { showToast('House cut must be 0-50%', 'error'); return; }
+            const cut = parseFloat(document.getElementById('house-cut').value);
+            if (cut < 0 || cut > 50) { showToast('0-50% only'); return; }
+            
             try {
-                await apiCall('/admin/settings', {
+                const res = await fetch(`${API_BASE}/api/admin/settings`, {
                     method: 'POST',
+                    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
                     body: JSON.stringify({ house_cut: cut })
                 });
-                showToast('House cut updated!', 'success');
+                const data = await res.json();
+                if (data.success) showToast('✅ House cut updated!');
             } catch (e) {
-                showToast(e.message, 'error');
+                showToast('Failed to update');
             }
         }
-
-        async function updatePaymentSettings() {
-            showToast('Payment settings saved!', 'success');
-        }
-
-        function showTab(tab) {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            event.target.classList.add('active');
-            document.getElementById('depositsTab').classList.toggle('hidden', tab !== 'deposits');
-            document.getElementById('withdrawalsTab').classList.toggle('hidden', tab !== 'withdrawals');
-            document.getElementById('roomsTab').classList.toggle('hidden', tab !== 'rooms');
-        }
-
-        function showToast(message, type = 'info') {
-            const existing = document.querySelector('.toast');
-            if (existing) existing.remove();
-            const toast = document.createElement('div');
-            toast.className = 'toast';
-            toast.style.borderColor = type === 'error' ? 'var(--danger)' : type === 'success' ? 'var(--success)' : 'var(--accent)';
-            toast.textContent = message;
-            document.body.appendChild(toast);
-            setTimeout(() => toast.remove(), 3000);
-        }
-
-        init();
+        
+        // Init
+        if (tg) { tg.expand(); tg.ready(); }
+        loadStats();
+        loadDeposits();
+        loadWithdrawals();
+        setInterval(() => { loadStats(); loadDeposits(); loadWithdrawals(); }, 30000);
     </script>
 </body>
-</html>'''
-
-with open('/mnt/agents/output/admin.html', 'w') as f:
-    f.write(admin_html)
-
-print("admin.html saved successfully")
-print(f"File size: {len(admin_html)} characters")
+</html>
