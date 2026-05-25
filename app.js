@@ -234,3 +234,266 @@ async function createRoom() {
         showToast('Failed to create room');
     }
 }
+// Join Room
+async function joinRoom(roomId) {
+    const cartelas = prompt('How many cartelas? (1-3)', '1');
+    if (!cartelas) return;
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/rooms/${roomId}/join`, {
+            method: 'POST',
+            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cartelas: parseInt(cartelas) })
+        });
+        const data = await res.json();
+        if (data.error) { showToast(data.error); return; }
+        
+        showToast('✅ Joined room!');
+        enterRoom(roomId);
+    } catch (e) {
+        showToast('Failed to join room');
+    }
+}
+
+// Join by Code
+function openJoinByCode() {
+    openModal('modal-join-code');
+}
+
+async function joinByCode() {
+    const code = document.getElementById('join-code').value.trim().toUpperCase();
+    const cartelas = parseInt(document.getElementById('join-code-cartelas').value) || 1;
+    
+    if (!code) { showToast('Enter invite code'); return; }
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/rooms/join-by-code`, {
+            method: 'POST',
+            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ invite_code: code, cartelas })
+        });
+        const data = await res.json();
+        if (data.error) { showToast(data.error); return; }
+        
+        showToast('✅ Joined private room!');
+        closeModal('modal-join-code');
+        enterRoom(data.room_id);
+    } catch (e) {
+        showToast('Invalid invite code');
+    }
+}
+
+// Game
+function enterRoom(roomId) {
+    currentRoom = roomId;
+    showTab('game');
+    document.querySelectorAll('.tab')[1].click();
+    document.getElementById('game-active').classList.remove('hidden');
+    document.getElementById('game-inactive').classList.add('hidden');
+    
+    if (gamePollInterval) clearInterval(gamePollInterval);
+    loadRoomState(roomId);
+    gamePollInterval = setInterval(() => loadRoomState(roomId), 3000);
+}
+
+async function loadRoomState(roomId) {
+    try {
+        const res = await fetch(`${API_BASE}/api/rooms/${roomId}/state`, { headers: getAuthHeaders() });
+        const state = await res.json();
+        if (state.error) return;
+        
+        document.getElementById('current-call').textContent = state.current_call || '--';
+        document.getElementById('game-status').textContent = state.status;
+        document.getElementById('game-status').className = `status status-${state.status}`;
+        
+        const calledDiv = document.getElementById('called-numbers');
+        calledDiv.innerHTML = (state.called_numbers || []).map(n => 
+            `<span class="called-number">${n}</span>`
+        ).join('');
+        
+        renderMyCartelas(state.my_cartelas, state.my_marked, state.called_numbers);
+        
+        if (state.status === 'completed') {
+            clearInterval(gamePollInterval);
+            showToast('🎉 Game Over! Check Telegram for winner.');
+        }
+    } catch (e) {
+        console.error('Room state error:', e);
+    }
+}
+
+function renderMyCartelas(cartelas, marked, calledNumbers) {
+    const container = document.getElementById('my-cartelas');
+    if (!cartelas || cartelas.length === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="icon">🎫</div><div>No cartelas yet</div></div>';
+        return;
+    }
+    
+    container.innerHTML = cartelas.map((cartela, cidx) => `
+        <div style="margin-bottom: 20px;">
+            <div style="text-align: center; font-size: 14px; color: #a78bfa; margin-bottom: 8px;">
+                Cartela #${cidx + 1}
+            </div>
+            <div class="cartela-grid">
+                ${cartela.map((num, idx) => {
+                    const isMarked = marked && marked[cidx] && marked[cidx].includes(idx);
+                    const isCalled = calledNumbers && calledNumbers.includes(num);
+                    const isFree = num === 0;
+                    return `
+                        <div class="cartela-cell ${isMarked ? 'marked' : ''} ${isFree ? 'free' : ''} ${isCalled && !isFree ? 'called' : ''}"
+                             onclick="markNumber('${currentRoom}', ${cidx}, ${idx})">
+                            ${isFree ? '★' : num}
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        </div>
+    `).join('');
+}
+
+async function markNumber(roomId, cartelaIdx, numberIdx) {
+    try {
+        const res = await fetch(`${API_BASE}/api/rooms/${roomId}/mark`, {
+            method: 'POST',
+            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cartela_index: cartelaIdx, number_index: numberIdx })
+        });
+        const data = await res.json();
+        if (data.winner) {
+            showToast('🎉 BINGO! YOU WON!');
+            confetti();
+        } else if (data.marked) {
+            loadRoomState(roomId);
+        }
+    } catch (e) {
+        showToast('Failed to mark number');
+    }
+}
+
+// Profile
+async function loadProfile() {
+    try {
+        const res = await fetch(`${API_BASE}/api/user/profile`, { headers: getAuthHeaders() });
+        const user = await res.json();
+        
+        document.getElementById('profile-info').innerHTML = `
+            <div class="info-row"><span class="info-label">Name:</span><span class="info-value">${user.first_name} ${user.last_name || ''}</span></div>
+            <div class="info-row"><span class="info-label">Username:</span><span class="info-value">@${user.username || 'N/A'}</span></div>
+            <div class="info-row"><span class="info-label">Balance:</span><span class="info-value">${user.balance.toFixed(2)} ETB</span></div>
+            <div class="info-row"><span class="info-label">Games Played:</span><span class="info-value">${user.stats.games_played}</span></div>
+            <div class="info-row"><span class="info-label">Games Won:</span><span class="info-value">${user.stats.games_won}</span></div>
+            <div class="info-row"><span class="info-label">Win Rate:</span><span class="info-value">${user.stats.win_rate}%</span></div>
+        `;
+        
+        loadTransactions();
+    } catch (e) {
+        document.getElementById('profile-info').innerHTML = '<div class="empty-state">Failed to load profile</div>';
+    }
+}
+
+async function loadTransactions() {
+    try {
+        const res = await fetch(`${API_BASE}/api/user/transactions`, { headers: getAuthHeaders() });
+        const txs = await res.json();
+        
+        const list = document.getElementById('transactions-list');
+        if (txs.length === 0) {
+            list.innerHTML = '<div style="text-align:center;color:#8892b0;padding:20px;">No transactions yet</div>';
+            return;
+        }
+        
+        list.innerHTML = txs.slice(0, 10).map(t => `
+            <div class="info-row">
+                <span class="info-label">${t.type}</span>
+                <span class="info-value" style="color:${t.amount > 0 ? '#38ef7d' : '#ef4444'}">
+                    ${t.amount > 0 ? '+' : ''}${t.amount.toFixed(0)} ETB
+                </span>
+            </div>
+        `).join('');
+    } catch (e) {
+        console.error('Transactions error:', e);
+    }
+}
+
+// Deposit / Withdraw
+function openDeposit() { openModal('modal-deposit'); }
+function openWithdraw() { openModal('modal-withdraw'); }
+
+async function requestDeposit() {
+    const amount = parseFloat(document.getElementById('deposit-amount').value);
+    if (!amount || amount < 10) { showToast('Min deposit 10 ETB'); return; }
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/user/deposit`, {
+            method: 'POST',
+            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount })
+        });
+        const data = await res.json();
+        if (data.error) { showToast(data.error); return; }
+        
+        showToast(`✅ Deposit #${data.deposit_id} requested!`);
+        showToast(`📱 Send ${amount} ETB to 0936719379 (Alazar)`);
+        closeModal('modal-deposit');
+    } catch (e) {
+        showToast('Deposit request failed');
+    }
+}
+
+async function requestWithdrawal() {
+    const amount = parseFloat(document.getElementById('withdraw-amount').value);
+    const phone = document.getElementById('withdraw-phone').value;
+    if (!amount || amount < 50) { showToast('Min withdrawal 50 ETB'); return; }
+    if (!phone) { showToast('Enter phone number'); return; }
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/user/withdraw`, {
+            method: 'POST',
+            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount, phone_number: phone })
+        });
+        const data = await res.json();
+        if (data.error) { showToast(data.error); return; }
+        
+        showToast(`✅ Withdrawal #${data.withdrawal_id} requested!`);
+        closeModal('modal-withdraw');
+        loadProfile();
+    } catch (e) {
+        showToast('Withdrawal request failed');
+    }
+}
+// UI Helpers
+function openModal(id) { document.getElementById(id).classList.add('active'); }
+function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+function showToast(msg) {
+    const toast = document.getElementById('toast');
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 3000);
+}
+
+function confetti() {
+    for (let i = 0; i < 50; i++) {
+        const el = document.createElement('div');
+        el.style.cssText = `
+            position: fixed;
+            width: 10px; height: 10px;
+            background: hsl(${Math.random() * 360}, 100%, 50%);
+            left: ${Math.random() * 100}vw;
+            top: -10px;
+            border-radius: 50%;
+            z-index: 9999;
+            animation: fall ${2 + Math.random() * 2}s linear forwards;
+        `;
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 4000);
+    }
+}
+
+// Close modals on overlay click
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) overlay.classList.remove('active');
+    });
+});
