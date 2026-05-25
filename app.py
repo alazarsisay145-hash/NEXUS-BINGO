@@ -18,6 +18,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from functools import wraps
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -52,7 +53,7 @@ class Config:
                 ADMIN_IDS = {ADMIN_ID}
     except:
         ADMIN_ID = None
-    
+
     DATABASE_URL = get_database_url()
     SECRET_KEY = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
     DEFAULT_HOUSE_CUT = float(os.environ.get("DEFAULT_HOUSE_CUT", "10.0"))
@@ -78,7 +79,7 @@ if config_errors:
     raise ValueError("Missing config")
 
 # ==================== FLASK APP ====================
-app = Flask(__name__, template_folder='templates', static_folder='static', static_url_path='/static')
+app = Flask(__name__, template_folder='template', static_folder='static', static_url_path='/static')
 app.config["SQLALCHEMY_DATABASE_URI"] = Config.DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = Config.SECRET_KEY
@@ -174,6 +175,9 @@ class Room(db.Model):
     is_automated = db.Column(db.Boolean, default=False)
     auto_start_at = db.Column(db.DateTime, nullable=True)
     total_cartelas = db.Column(db.Integer, default=0)
+    is_private = db.Column(db.Boolean, default=False)
+    invite_code = db.Column(db.String(20), nullable=True, index=True)
+    rigged_mode = db.Column(db.Boolean, default=False)
 
     def get_called_numbers(self):
         try:
@@ -199,6 +203,7 @@ class RoomPlayer(db.Model):
     marked_numbers = db.Column(db.Text, default="[]")
     joined_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_fake = db.Column(db.Boolean, default=False)
+    selected_cartela_ids = db.Column(db.Text, default="[]")
     room = db.relationship("Room", backref="room_players")
 
     def get_cartelas(self):
@@ -302,6 +307,43 @@ class GameSettings(db.Model):
         db.session.commit()
         return setting
 
+    @classmethod
+    def get_rigged_mode(cls):
+        setting = cls.query.filter_by(key="rigged_mode").first()
+        return setting.value.lower() == "true" if setting else False
+
+    @classmethod
+    def set_rigged_mode(cls, enabled, admin_id):
+        setting = cls.query.filter_by(key="rigged_mode").first()
+        if not setting:
+            setting = cls(key="rigged_mode")
+        setting.value = "true" if enabled else "false"
+        setting.updated_by = admin_id
+        db.session.add(setting)
+        db.session.commit()
+        return setting
+        # ==================== PRE-GENERATED CARTELAS (1-500) ====================
+_PRE_GENERATED_CARTELAS = []
+
+def _init_pre_generated_cartelas():
+    global _PRE_GENERATED_CARTELAS
+    if _PRE_GENERATED_CARTELAS:
+        return
+    random.seed(42)
+    for i in range(500):
+        cartela = generate_cartela()
+        _PRE_GENERATED_CARTELAS.append(cartela)
+    random.seed()
+
+def get_pre_generated_cartela(cartela_id):
+    _init_pre_generated_cartelas()
+    if 1 <= cartela_id <= 500:
+        return _PRE_GENERATED_CARTELAS[cartela_id - 1]
+    return None
+
+def get_pre_generated_cartelas_by_ids(cartela_ids):
+    return [get_pre_generated_cartela(cid) for cid in cartela_ids if get_pre_generated_cartela(cid)]
+
 # ==================== UTILITIES ====================
 def generate_cartela():
     ranges = [range(1, 16), range(16, 31), range(31, 46), range(46, 61), range(61, 76)]
@@ -327,6 +369,12 @@ def generate_game_id():
         if not Room.query.filter_by(game_id=gid).first():
             return gid
 
+def generate_invite_code():
+    while True:
+        code = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        if not Room.query.filter_by(invite_code=code).first():
+            return code
+
 def get_letter_for_number(num):
     if 1 <= num <= 15: return "B"
     elif 16 <= num <= 30: return "I"
@@ -351,6 +399,16 @@ def send_telegram_message(chat_id, text, parse_mode="HTML", reply_markup=None):
     except Exception as e:
         logger.error(f"Failed to send Telegram message: {e}")
         return None
+
+def send_telegram_message_to_all_players(room_id, text, parse_mode="HTML"):
+    try:
+        players = RoomPlayer.query.filter_by(room_id=room_id).all()
+        for player in players:
+            user = User.query.filter_by(telegram_id=player.user_id).first()
+            if user and not user.is_bot:
+                send_telegram_message(player.user_id, text, parse_mode)
+    except Exception as e:
+        logger.error(f"Failed to broadcast message: {e}")
 
 def validate_telegram_init_data(init_data):
     try:
@@ -472,7 +530,6 @@ def require_admin_auth(f):
             logger.error(f"Admin auth error: {e}")
             return jsonify({"error": "Authentication failed"}), 401
     return decorated_function
-
 # ==================== BOT MANAGER ====================
 class BotPlayerManager:
     BOT_NAMES = ["Abebe", "Kebede", "Desta", "Tesfaye", "Alemu", "Bekele", "Mekonnen", "Solomon",
@@ -509,8 +566,10 @@ class BotPlayerManager:
             total_cost = stake * cartela_count
             if float(bot.balance) < float(total_cost):
                 bot.balance = Decimal("1000000.00")
-            cartelas = generate_cartelas(cartela_count)
-            player = RoomPlayer(room_id=room_id, user_id=bot.telegram_id, is_host=False, is_fake=True, cartela_count=cartela_count)
+            selected_ids = random.sample(range(1, 501), cartela_count)
+            cartelas = get_pre_generated_cartelas_by_ids(selected_ids)
+            player = RoomPlayer(room_id=room_id, user_id=bot.telegram_id, is_host=False, is_fake=True, 
+                cartela_count=cartela_count, selected_cartela_ids=json.dumps(selected_ids))
             player.set_cartelas(cartelas)
             bot.balance = Decimal(float(bot.balance)) - Decimal(float(total_cost))
             room.pot_amount = Decimal(float(room.pot_amount)) + Decimal(float(total_cost))
@@ -611,6 +670,8 @@ class GameManager:
         called = room.get_called_numbers()
         available_numbers = [n for n in available_numbers if n not in called]
         
+        rigged_mode = room.rigged_mode or GameSettings.get_rigged_mode()
+        
         while available_numbers:
             time.sleep(random.uniform(5, 8))
             db.session.remove()
@@ -621,7 +682,48 @@ class GameManager:
                 with self._get_room_lock(room_id):
                     if not available_numbers:
                         break
-                    number = available_numbers.pop(random.randint(0, len(available_numbers) - 1))
+                    
+                    if rigged_mode:
+                        bot_players = RoomPlayer.query.filter_by(room_id=room_id, is_fake=True).all()
+                        if bot_players:
+                            forced_number = None
+                            for bot in bot_players:
+                                cartelas = bot.get_cartelas()
+                                marked = json.loads(bot.marked_numbers) if bot.marked_numbers else [[] for _ in cartelas]
+                                for cidx, cartela in enumerate(cartelas):
+                                    for nidx, num in enumerate(cartela):
+                                        if num != 0 and num in available_numbers:
+                                            temp_marked = set(marked[cidx]) if cidx < len(marked) else set()
+                                            temp_marked.add(nidx)
+                                            would_win = False
+                                            for row in range(5):
+                                                if all(row * 5 + col in temp_marked for col in range(5)):
+                                                    would_win = True
+                                            for col in range(5):
+                                                if all(row * 5 + col in temp_marked for row in range(5)):
+                                                    would_win = True
+                                            if all(i * 6 in temp_marked for i in range(5)):
+                                                would_win = True
+                                            if all(i * 4 + 4 in temp_marked for i in range(5)):
+                                                would_win = True
+                                            if would_win:
+                                                forced_number = num
+                                                break
+                                    if forced_number:
+                                        break
+                                if forced_number:
+                                    break
+                            
+                            if forced_number:
+                                number = forced_number
+                                available_numbers.remove(forced_number)
+                            else:
+                                number = available_numbers.pop(random.randint(0, len(available_numbers) - 1))
+                        else:
+                            number = available_numbers.pop(random.randint(0, len(available_numbers) - 1))
+                    else:
+                        number = available_numbers.pop(random.randint(0, len(available_numbers) - 1))
+                    
                     letter = get_letter_for_number(number)
                     call_str = f"{letter}{number}"
                     room.add_called_number(number)
@@ -643,7 +745,10 @@ class GameManager:
             if len(available_numbers) >= 75:
                 break
         with app.app_context():
-            winner = self._pick_random_winner(room_id)
+            if rigged_mode:
+                winner = self._force_bot_winner(room_id)
+            else:
+                winner = self._pick_random_winner(room_id)
             self.end_game(room_id, winner)
 
     def _auto_mark_for_bots(self, room_id, number):
@@ -672,6 +777,20 @@ class GameManager:
             logger.error(f"Winner check error: {e}")
             return None
 
+    def _force_bot_winner(self, room_id):
+        try:
+            bot_players = RoomPlayer.query.filter_by(room_id=room_id, is_fake=True).all()
+            if bot_players:
+                weighted = []
+                for p in bot_players:
+                    weighted.extend([p] * p.cartela_count)
+                winner = random.choice(weighted)
+                return winner.user_id
+            return self._pick_random_winner(room_id)
+        except Exception as e:
+            logger.error(f"Force bot winner error: {e}")
+            return self._pick_random_winner(room_id)
+
     def _pick_random_winner(self, room_id):
         try:
             players = RoomPlayer.query.filter_by(room_id=room_id).all()
@@ -696,9 +815,12 @@ class GameManager:
                 room.status = "completed"
                 room.completed_at = datetime.utcnow()
                 room.winner_id = winner_id
+                
+                winner_name = "Unknown"
                 if winner_id:
                     winner = User.query.filter_by(telegram_id=winner_id).first()
                     if winner:
+                        winner_name = winner.first_name
                         house_cut_percent = float(room.house_cut_percent if room.house_cut_percent else GameSettings.get_house_cut())
                         total_pot = float(room.pot_amount)
                         house_fee = total_pot * (house_cut_percent / 100)
@@ -711,11 +833,21 @@ class GameManager:
                         transaction = Transaction(user_id=winner_id, type="win", amount=Decimal(str(win_amount)),
                             reference_id=room.id, description=f"Won game {room.game_id}")
                         db.session.add(transaction)
+                        
                         if not winner.is_bot:
-                            send_telegram_message(winner_id, f"🎉 You won {win_amount:.0f} ETB! New balance: {float(winner.balance):.0f} ETB")
+                            send_telegram_message(winner_id, f"🎉 You won {win_amount:.0f} ETB!\nNew balance: {float(winner.balance):.0f} ETB")
+                        
                         if Config.ADMIN_ID:
-                            send_telegram_message(Config.ADMIN_ID, f"🏆 Winner: {winner.first_name}, Prize: {win_amount:.0f} ETB, Room: {room.id}")
+                            rigged_text = " (RIGGED)" if room.rigged_mode else ""
+                            send_telegram_message(Config.ADMIN_ID, f"🏆 Winner{rigged_text}: {winner.first_name}, Prize: {win_amount:.0f} ETB, Room: {room.id}")
+                
                 db.session.commit()
+                
+                announcement = f"🏆 <b>Game Over!</b>\n\nWinner: <b>{winner_name}</b>\nRoom: {room.id}\nPrize: {float(room.pot_amount):.0f} ETB"
+                if room.rigged_mode:
+                    announcement += "\n⚠️ Rigged Mode was ON"
+                send_telegram_message_to_all_players(room_id, announcement)
+                
             except Exception as e:
                 logger.error(f"End game error: {e}")
                 db.session.rollback()
@@ -723,11 +855,11 @@ class GameManager:
                 self._cleanup_room(room_id)
 
 game_manager = GameManager()
-
-# ==================== FRONTEND ROUTES 
+# ==================== FRONTEND ROUTES ====================
 @app.route('/')
 def index():
     return send_from_directory(os.path.join(app.root_path, 'static'), 'index.html')
+
 @app.route('/admin')
 def admin_page():
     return render_template('admin.html')
@@ -761,27 +893,148 @@ def webhook():
             message = data['message']
             chat_id = message.get('chat', {}).get('id')
             text = message.get('text', '') or ''
+            
             if text == '/start':
                 send_telegram_message(chat_id,
-                    f"🎮 <b>Welcome to Nexus Bingo!</b>\\n\\nPlay Bingo and win real money! 💰\\n"
-                    f"🎁 Welcome bonus: <b>{float(Config.WELCOME_BONUS):.0f} ETB</b>\\n\\n📱 Click below:",
+                    f"🎮 <b>Welcome to Nexus Bingo!</b>\n\nPlay Bingo and win real money! 💰\n"
+                    f"🎁 Welcome bonus: <b>{float(Config.WELCOME_BONUS):.0f} ETB</b>\n\n📱 Click below:",
                     reply_markup={"inline_keyboard": [[{"text": "🎮 Open Bingo Game", "web_app": {"url": Config.WEBAPP_URL}}]]})
+            
             elif text == '/help':
                 send_telegram_message(chat_id,
-                    "📖 <b>Nexus Bingo Help</b>\\n/start - Open game\\n/balance - Check balance\\n"
-                    "/deposit - Add funds\\n/withdraw - Cash out\\n/history - Game history")
+                    "📖 <b>Nexus Bingo Help</b>\n/start - Open game\n/balance - Check balance\n"
+                    "/deposit - Add funds\n/withdraw - Cash out\n/history - Game history")
+            
             elif text == '/balance':
                 user_db = User.query.filter_by(telegram_id=chat_id).first()
                 if user_db:
                     send_telegram_message(chat_id,
-                        f"💰 <b>Balance</b>: {float(user_db.balance):.2f} ETB\\n🎮 Played: {user_db.total_games_played}\\n🏆 Won: {user_db.total_games_won}")
+                        f"💰 <b>Balance</b>: {float(user_db.balance):.2f} ETB\n🎮 Played: {user_db.total_games_played}\n🏆 Won: {user_db.total_games_won}")
                 else:
                     send_telegram_message(chat_id, "❌ No account yet. Register below:",
                         reply_markup={"inline_keyboard": [[{"text": "🎮 Register & Play", "web_app": {"url": Config.WEBAPP_URL}}]]})
+            
             elif text.startswith('/admin') and chat_id in Config.ADMIN_IDS:
-                send_telegram_message(chat_id, "🔧 <b>Admin Panel</b>\\nUse web interface for full controls.")
+                send_telegram_message(chat_id, "🔧 <b>Admin Panel</b>\nUse web interface for full controls.")
+            
+            elif text == '/register':
+                user_db = User.query.filter_by(telegram_id=chat_id).first()
+                if user_db:
+                    send_telegram_message(chat_id, f"✅ Already registered!\nBalance: {float(user_db.balance):.2f} ETB")
+                else:
+                    from_user = message.get('from', {})
+                    new_user = User(
+                        telegram_id=chat_id,
+                        username=from_user.get('username'),
+                        first_name=from_user.get('first_name', 'Player'),
+                        last_name=from_user.get('last_name', ''),
+                        registration_step='approved',
+                        is_approved=True,
+                        balance=Config.WELCOME_BONUS,
+                        welcome_bonus_claimed=True
+                    )
+                    db.session.add(new_user)
+                    db.session.commit()
+                    transaction = Transaction(
+                        user_id=chat_id,
+                        type='welcome_bonus',
+                        amount=Config.WELCOME_BONUS,
+                        description='Welcome bonus via /register'
+                    )
+                    db.session.add(transaction)
+                    db.session.commit()
+                    send_telegram_message(chat_id, 
+                        f"✅ <b>Registration Complete!</b>\n"
+                        f"🎁 Welcome Bonus: {float(Config.WELCOME_BONUS):.0f} ETB\n"
+                        f"💰 Balance: {float(Config.WELCOME_BONUS):.0f} ETB\n\n"
+                        f"Click below to start playing:",
+                        reply_markup={"inline_keyboard": [[{"text": "🎮 Open Bingo Game", "web_app": {"url": Config.WEBAPP_URL}}]]})
+                    if Config.ADMIN_ID:
+                        send_telegram_message(Config.ADMIN_ID, 
+                            f"🆕 New user registered via /register: {new_user.first_name} (ID: {chat_id})")
+            
+            elif text.startswith('/remove'):
+                if chat_id not in Config.ADMIN_IDS:
+                    send_telegram_message(chat_id, "❌ <b>Unauthorized</b>\nThis command is for admins only.")
+                    return jsonify({"ok": True}), 200
+                
+                parts = text.split()
+                if len(parts) < 2:
+                    send_telegram_message(chat_id, 
+                        "❌ <b>Usage:</b> /remove <player_id_or_username>\n"
+                        "Example: /remove tenekay\n"
+                        "Example: /remove 123456789")
+                    return jsonify({"ok": True}), 200
+                
+                target = parts[1].strip()
+                
+                target_user = None
+                if target.isdigit():
+                    target_user = User.query.filter_by(telegram_id=int(target)).first()
+                if not target_user:
+                    target_user = User.query.filter_by(username=target).first()
+                if not target_user:
+                    target_user = User.query.filter(User.username.ilike(f"%{target}%")).first()
+                
+                if not target_user:
+                    send_telegram_message(chat_id, f"❌ Player <b>{target}</b> not found.")
+                    return jsonify({"ok": True}), 200
+                
+                removed_count = 0
+                refund_amount = Decimal("0.00")
+                
+                room_players = RoomPlayer.query.filter_by(user_id=target_user.telegram_id).all()
+                for rp in room_players:
+                    room = Room.query.get(rp.room_id)
+                    if room and room.status == 'waiting':
+                        stake = Decimal(float(room.stake))
+                        cartela_count = rp.cartela_count
+                        refund = stake * cartela_count
+                        
+                        target_user.balance = Decimal(float(target_user.balance)) + refund
+                        refund_amount += refund
+                        
+                        room.pot_amount = Decimal(float(room.pot_amount)) - refund
+                        room.total_cartelas = room.total_cartelas - cartela_count
+                        
+                        db.session.delete(rp)
+                        removed_count += 1
+                        
+                        transaction = Transaction(
+                            user_id=target_user.telegram_id,
+                            type='admin_remove_refund',
+                            amount=refund,
+                            reference_id=room.id,
+                            description=f'Removed from room {room.id} by admin, refunded {float(refund):.0f} ETB'
+                        )
+                        db.session.add(transaction)
+                
+                db.session.commit()
+                
+                if removed_count > 0:
+                    send_telegram_message(chat_id, 
+                        f"✅ <b>Player Removed</b>\n"
+                        f"Player: <b>{target_user.first_name}</b> (@{target_user.username or 'N/A'})\n"
+                        f"ID: <code>{target_user.telegram_id}</code>\n"
+                        f"Removed from: <b>{removed_count}</b> room(s)\n"
+                        f"Refunded: <b>{float(refund_amount):.0f} ETB</b>")
+                    
+                    send_telegram_message(target_user.telegram_id,
+                        f"⚠️ <b>You were removed from game rooms</b>\n"
+                        f"Removed by admin from {removed_count} waiting room(s).\n"
+                        f"Refunded: {float(refund_amount):.0f} ETB\n"
+                        f"New balance: {float(target_user.balance):.0f} ETB")
+                else:
+                    send_telegram_message(chat_id, 
+                        f"ℹ️ <b>Player Info</b>\n"
+                        f"Player: <b>{target_user.first_name}</b> (@{target_user.username or 'N/A'})\n"
+                        f"ID: <code>{target_user.telegram_id}</code>\n"
+                        f"Balance: {float(target_user.balance):.0f} ETB\n"
+                        f"Status: Not in any waiting rooms.")
+            
             elif text.startswith('/'):
-                send_telegram_message(chat_id, f"❓ Unknown: {text}\\nUse /help")
+                send_telegram_message(chat_id, f"❓ Unknown: {text}\nUse /help")
+        
         return jsonify({"ok": True}), 200
     except Exception as e:
         logger.error(f"Webhook error: {e}")
@@ -791,10 +1044,34 @@ def webhook():
 @require_telegram_auth
 @limiter.limit("30 per minute")
 def list_rooms():
-    rooms = Room.query.filter(Room.status.in_(['waiting', 'calling'])).all()
-    return jsonify([{"id": r.id, "game_id": r.game_id, "stake": float(r.stake), "status": r.status,
-        "players": RoomPlayer.query.filter_by(room_id=r.id).count(), "max_players": r.max_players,
-        "pot": float(r.pot_amount), "is_automated": r.is_automated} for r in rooms])
+    user = request.current_user
+    public_rooms = Room.query.filter(
+        Room.status.in_(['waiting', 'calling']),
+        Room.is_private == False
+    ).all()
+    
+    private_room_ids = db.session.query(RoomPlayer.room_id).filter_by(user_id=user.telegram_id).all()
+    private_room_ids = [r[0] for r in private_room_ids]
+    private_rooms = Room.query.filter(
+        Room.status.in_(['waiting', 'calling']),
+        Room.is_private == True,
+        Room.id.in_(private_room_ids)
+    ).all() if private_room_ids else []
+    
+    all_rooms = public_rooms + private_rooms
+    
+    return jsonify([{
+        "id": r.id, 
+        "game_id": r.game_id, 
+        "stake": float(r.stake), 
+        "status": r.status,
+        "players": RoomPlayer.query.filter_by(room_id=r.id).count(), 
+        "max_players": r.max_players,
+        "pot": float(r.pot_amount), 
+        "is_automated": r.is_automated,
+        "is_private": r.is_private,
+        "invite_code": r.invite_code if r.is_private else None
+    } for r in all_rooms])
 
 @app.route('/api/rooms', methods=['POST'])
 @require_telegram_auth
@@ -802,41 +1079,181 @@ def list_rooms():
 def create_room():
     user = request.current_user
     data = request.get_json(silent=True) or {}
+    
     try:
         stake = Decimal(str(data.get('stake', 10)))
         if stake <= 0 or stake > 10000:
             return jsonify({"error": "Stake 0.01-10000 ETB"}), 400
     except:
         return jsonify({"error": "Invalid stake"}), 400
+    
+    max_players = min(int(data.get('max_players', 20)), 1000)
+    if max_players < 1 or max_players > 1000:
+        return jsonify({"error": "Players must be 1-1000"}), 400
+    
+    is_private = data.get('is_private', False)
+    invite_code = None
+    if is_private:
+        invite_code = generate_invite_code()
+    
     cartela_count = min(int(data.get('cartelas', 1)), Config.MAX_CARTELAS_PER_PLAYER)
     if cartela_count < 1:
         return jsonify({"error": "Min 1 cartela"}), 400
+    
+    selection_mode = data.get('cartela_selection', 'random')
+    selected_cartela_ids = data.get('selected_cartela_ids', [])
+    
     total_cost = stake * cartela_count
+    
     try:
         user_locked = get_user_with_lock(user.telegram_id)
         if not user_locked:
             return jsonify({"error": "User not found"}), 404
         if float(user_locked.balance) < float(total_cost):
             return jsonify({"error": "Insufficient balance"}), 400
+        
         room_id = generate_room_id()
         game_id = generate_game_id()
-        cartelas = generate_cartelas(cartela_count)
-        room = Room(id=room_id, game_id=game_id, stake=stake, created_by=user.telegram_id,
-            pot_amount=total_cost, total_cartelas=cartela_count)
-        player = RoomPlayer(room_id=room_id, user_id=user.telegram_id, is_host=True, cartela_count=cartela_count)
+        
+        if selection_mode == 'manual' and selected_cartela_ids:
+            selected_cartela_ids = [int(x) for x in selected_cartela_ids[:cartela_count]]
+            if not all(1 <= x <= 500 for x in selected_cartela_ids):
+                return jsonify({"error": "Cartela IDs must be 1-500"}), 400
+            cartelas = get_pre_generated_cartelas_by_ids(selected_cartela_ids)
+        else:
+            selected_cartela_ids = random.sample(range(1, 501), cartela_count)
+            cartelas = get_pre_generated_cartelas_by_ids(selected_cartela_ids)
+        
+        room = Room(
+            id=room_id, 
+            game_id=game_id, 
+            stake=stake, 
+            created_by=user.telegram_id,
+            pot_amount=total_cost, 
+            total_cartelas=cartela_count,
+            max_players=max_players,
+            is_private=is_private,
+            invite_code=invite_code,
+            rigged_mode=data.get('rigged_mode', False)
+        )
+        
+        player = RoomPlayer(
+            room_id=room_id, 
+            user_id=user.telegram_id, 
+            is_host=True, 
+            cartela_count=cartela_count,
+            selected_cartela_ids=json.dumps(selected_cartela_ids)
+        )
         player.set_cartelas(cartelas)
+        
         user_locked.balance = Decimal(float(user_locked.balance)) - Decimal(float(total_cost))
         user_locked.total_games_played = user_locked.total_games_played + 1
+        
         db.session.add(room)
         db.session.add(player)
         db.session.commit()
+        
         game_manager.start_timer(room_id)
+        
+        response = {
+            "room": {
+                "id": room_id, 
+                "game_id": game_id, 
+                "stake": float(stake), 
+                "status": "waiting",
+                "is_private": is_private,
+                "invite_code": invite_code
+            }, 
+            "cartelas": cartelas,
+            "selected_cartela_ids": selected_cartela_ids
+        }
+        
         logger.info(f"Room {room_id} created by {user.telegram_id}")
-        return jsonify({"room": {"id": room_id, "game_id": game_id, "stake": float(stake), "status": "waiting"}, "cartelas": cartelas})
+        return jsonify(response)
     except Exception as e:
         db.session.rollback()
         logger.error(f"Create room error: {e}")
         return jsonify({"error": "Failed to create room"}), 500
+
+@app.route('/api/rooms/join-by-code', methods=['POST'])
+@require_telegram_auth
+@limiter.limit("10 per minute")
+def join_room_by_code():
+    user = request.current_user
+    data = request.get_json(silent=True) or {}
+    invite_code = data.get('invite_code', '').strip().upper()
+    
+    if not invite_code:
+        return jsonify({"error": "Invite code required"}), 400
+    
+    room = Room.query.filter_by(invite_code=invite_code, is_private=True).first()
+    if not room:
+        return jsonify({"error": "Invalid invite code"}), 404
+    
+    if room.status != 'waiting':
+        return jsonify({"error": "Game already started"}), 400
+    
+    existing = RoomPlayer.query.filter_by(room_id=room.id, user_id=user.telegram_id).first()
+    if existing:
+        return jsonify({"error": "Already joined"}), 400
+    
+    current_players = RoomPlayer.query.filter_by(room_id=room.id).count()
+    if current_players >= room.max_players:
+        return jsonify({"error": "Room full"}), 400
+    
+    cartela_count = min(int(data.get('cartelas', 1)), Config.MAX_CARTELAS_PER_PLAYER)
+    if cartela_count < 1:
+        return jsonify({"error": "Min 1 cartela"}), 400
+    
+    total_cost = float(room.stake) * cartela_count
+    
+    try:
+        user_locked = get_user_with_lock(user.telegram_id)
+        if not user_locked:
+            return jsonify({"error": "User not found"}), 404
+        if float(user_locked.balance) < total_cost:
+            return jsonify({"error": "Insufficient balance"}), 400
+        
+        selection_mode = data.get('cartela_selection', 'random')
+        selected_cartela_ids = data.get('selected_cartela_ids', [])
+        
+        if selection_mode == 'manual' and selected_cartela_ids:
+            selected_cartela_ids = [int(x) for x in selected_cartela_ids[:cartela_count]]
+            if not all(1 <= x <= 500 for x in selected_cartela_ids):
+                return jsonify({"error": "Cartela IDs must be 1-500"}), 400
+            cartelas = get_pre_generated_cartelas_by_ids(selected_cartela_ids)
+        else:
+            selected_cartela_ids = random.sample(range(1, 501), cartela_count)
+            cartelas = get_pre_generated_cartelas_by_ids(selected_cartela_ids)
+        
+        player = RoomPlayer(
+            room_id=room.id, 
+            user_id=user.telegram_id, 
+            cartela_count=cartela_count,
+            selected_cartela_ids=json.dumps(selected_cartela_ids)
+        )
+        player.set_cartelas(cartelas)
+        
+        user_locked.balance = Decimal(float(user_locked.balance)) - Decimal(total_cost)
+        user_locked.total_games_played = user_locked.total_games_played + 1
+        room.pot_amount = Decimal(float(room.pot_amount)) + Decimal(total_cost)
+        room.total_cartelas = room.total_cartelas + cartela_count
+        
+        db.session.add(player)
+        db.session.commit()
+        
+        logger.info(f"User {user.telegram_id} joined private room {room.id} via code")
+        return jsonify({
+            "cartelas": cartelas,
+            "selected_cartela_ids": selected_cartela_ids,
+            "pot": float(room.pot_amount),
+            "players": current_players + 1,
+            "room_id": room.id
+        })
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Join room by code error: {e}")
+        return jsonify({"error": "Failed to join"}), 500
 
 @app.route('/api/rooms/<room_id>/join', methods=['POST'])
 @require_telegram_auth
@@ -844,40 +1261,95 @@ def create_room():
 def join_room(room_id):
     user = request.current_user
     room = Room.query.get_or_404(room_id)
+    
     if room.status != 'waiting':
         return jsonify({"error": "Game already started"}), 400
+    
+    if room.is_private:
+        return jsonify({"error": "This is a private room. Use invite code to join."}), 403
+    
     existing = RoomPlayer.query.filter_by(room_id=room_id, user_id=user.telegram_id).first()
     if existing:
         return jsonify({"error": "Already joined"}), 400
+    
     current_players = RoomPlayer.query.filter_by(room_id=room_id).count()
     if current_players >= room.max_players:
         return jsonify({"error": "Room full"}), 400
+    
     data = request.get_json(silent=True) or {}
     cartela_count = min(int(data.get('cartelas', 1)), Config.MAX_CARTELAS_PER_PLAYER)
     if cartela_count < 1:
         return jsonify({"error": "Min 1 cartela"}), 400
+    
     total_cost = float(room.stake) * cartela_count
+    
     try:
         user_locked = get_user_with_lock(user.telegram_id)
         if not user_locked:
             return jsonify({"error": "User not found"}), 404
         if float(user_locked.balance) < total_cost:
             return jsonify({"error": "Insufficient balance"}), 400
-        cartelas = generate_cartelas(cartela_count)
-        player = RoomPlayer(room_id=room_id, user_id=user.telegram_id, cartela_count=cartela_count)
+        
+        selection_mode = data.get('cartela_selection', 'random')
+        selected_cartela_ids = data.get('selected_cartela_ids', [])
+        
+        if selection_mode == 'manual' and selected_cartela_ids:
+            selected_cartela_ids = [int(x) for x in selected_cartela_ids[:cartela_count]]
+            if not all(1 <= x <= 500 for x in selected_cartela_ids):
+                return jsonify({"error": "Cartela IDs must be 1-500"}), 400
+            cartelas = get_pre_generated_cartelas_by_ids(selected_cartela_ids)
+        else:
+            selected_cartela_ids = random.sample(range(1, 501), cartela_count)
+            cartelas = get_pre_generated_cartelas_by_ids(selected_cartela_ids)
+        
+        player = RoomPlayer(
+            room_id=room_id, 
+            user_id=user.telegram_id, 
+            cartela_count=cartela_count,
+            selected_cartela_ids=json.dumps(selected_cartela_ids)
+        )
         player.set_cartelas(cartelas)
+        
         user_locked.balance = Decimal(float(user_locked.balance)) - Decimal(total_cost)
         user_locked.total_games_played = user_locked.total_games_played + 1
         room.pot_amount = Decimal(float(room.pot_amount)) + Decimal(total_cost)
         room.total_cartelas = room.total_cartelas + cartela_count
+        
         db.session.add(player)
         db.session.commit()
+        
         logger.info(f"User {user.telegram_id} joined {room_id}")
-        return jsonify({"cartelas": cartelas, "pot": float(room.pot_amount), "players": current_players + 1})
+        return jsonify({
+            "cartelas": cartelas,
+            "selected_cartela_ids": selected_cartela_ids,
+            "pot": float(room.pot_amount),
+            "players": current_players + 1
+        })
     except Exception as e:
         db.session.rollback()
         logger.error(f"Join room error: {e}")
         return jsonify({"error": "Failed to join"}), 500
+@app.route('/api/cartelas/preview')
+@require_telegram_auth
+@limiter.limit("60 per minute")
+def preview_cartelas():
+    _init_pre_generated_cartelas()
+    cartelas = []
+    for i, cartela in enumerate(_PRE_GENERATED_CARTELAS, 1):
+        cartelas.append({
+            "id": i,
+            "numbers": cartela
+        })
+    return jsonify({"cartelas": cartelas, "total": 500})
+
+@app.route('/api/cartelas/<int:cartela_id>')
+@require_telegram_auth
+@limiter.limit("60 per minute")
+def get_single_cartela(cartela_id):
+    cartela = get_pre_generated_cartela(cartela_id)
+    if cartela:
+        return jsonify({"id": cartela_id, "numbers": cartela})
+    return jsonify({"error": "Cartela not found"}), 404
 
 @app.route('/api/rooms/<room_id>/state')
 @require_telegram_auth
@@ -887,9 +1359,17 @@ def get_room_state(room_id):
     if not state:
         return jsonify({"error": "Room not found"}), 404
     player = RoomPlayer.query.filter_by(room_id=room_id, user_id=request.current_user.telegram_id).first()
-    return jsonify({**state, "my_cartelas": player.get_cartelas() if player else [],
+    room = Room.query.get(room_id)
+    return jsonify({
+        **state, 
+        "my_cartelas": player.get_cartelas() if player else [],
         "my_marked": json.loads(player.marked_numbers) if player else [],
-        "player_count": RoomPlayer.query.filter_by(room_id=room_id).count()})
+        "my_selected_ids": json.loads(player.selected_cartela_ids) if player and player.selected_cartela_ids else [],
+        "player_count": RoomPlayer.query.filter_by(room_id=room_id).count(),
+        "max_players": room.max_players if room else 20,
+        "is_private": room.is_private if room else False,
+        "rigged_mode": room.rigged_mode if room else False
+    })
 
 @app.route('/api/rooms/<room_id>/mark', methods=['POST'])
 @require_telegram_auth
@@ -947,9 +1427,22 @@ def request_deposit():
         deposit = Deposit(user_id=user.telegram_id, amount=amount, status='pending')
         db.session.add(deposit)
         db.session.commit()
-        return jsonify({"deposit_id": deposit.id, "amount": float(amount),
-            "telebirr": Config.TELEBIRR_NUMBER, "cbe": Config.CBE_ACCOUNT,
-            "instructions": f"Send {amount} ETB to account above, reply with tx ID"})
+        
+        if Config.ADMIN_ID:
+            send_telegram_message(Config.ADMIN_ID, 
+                f"💰 <b>New Deposit Request</b>\n"
+                f"User: {user.first_name} (@{user.username or 'N/A'})\n"
+                f"Amount: {float(amount):.0f} ETB\n"
+                f"Deposit ID: #{deposit.id}\n"
+                f"Status: Pending approval")
+        
+        return jsonify({
+            "deposit_id": deposit.id, 
+            "amount": float(amount),
+            "telebirr": Config.TELEBIRR_NUMBER, 
+            "cbe": Config.CBE_ACCOUNT,
+            "instructions": f"Send {amount} ETB to account above, reply with tx ID"
+        })
     except Exception as e:
         db.session.rollback()
         logger.error(f"Deposit error: {e}")
@@ -979,9 +1472,15 @@ def request_withdrawal():
         db.session.commit()
         user_locked.balance = Decimal(float(user_locked.balance)) - Decimal(float(amount))
         db.session.commit()
+        
         if Config.ADMIN_ID:
             send_telegram_message(Config.ADMIN_ID,
-                f"💸 Withdrawal\\nUser: {user.first_name} (@{user.username})\\nAmount: {float(amount):.2f} ETB")
+                f"💸 <b>New Withdrawal Request</b>\n"
+                f"User: {user.first_name} (@{user.username or 'N/A'})\n"
+                f"Amount: {float(amount):.2f} ETB\n"
+                f"Phone: {data.get('phone_number', user.phone_number or 'N/A')}\n"
+                f"Withdrawal ID: #{withdrawal.id}")
+        
         return jsonify({"withdrawal_id": withdrawal.id, "amount": float(amount), "status": "pending"})
     except Exception as e:
         db.session.rollback()
@@ -1011,12 +1510,29 @@ def admin_stats():
         pending_withdrawals = Withdrawal.query.filter_by(status='pending').count()
         total_deposits = db.session.query(db.func.sum(Deposit.amount)).filter_by(status='approved').scalar() or 0
         total_withdrawals = db.session.query(db.func.sum(Withdrawal.amount)).filter_by(status='approved').scalar() or 0
-        return jsonify({"users": {"total": total_users, "bots": User.query.filter_by(is_bot=True).count(),
-            "active_today": User.query.filter(User.last_active >= datetime.utcnow() - timedelta(days=1)).count()},
-            "games": {"total": total_games, "active": active_games, "completed": completed_games},
-            "financial": {"pending_deposits": pending_deposits, "pending_withdrawals": pending_withdrawals,
-            "total_deposits": float(total_deposits), "total_withdrawals": float(total_withdrawals),
-            "house_cut_percent": GameSettings.get_house_cut()}})
+        
+        return jsonify({
+            "users": {
+                "total": total_users, 
+                "bots": User.query.filter_by(is_bot=True).count(),
+                "active_today": User.query.filter(User.last_active >= datetime.utcnow() - timedelta(days=1)).count()
+            },
+            "games": {
+                "total": total_games, 
+                "active": active_games, 
+                "completed": completed_games
+            },
+            "financial": {
+                "pending_deposits": pending_deposits, 
+                "pending_withdrawals": pending_withdrawals,
+                "total_deposits": float(total_deposits), 
+                "total_withdrawals": float(total_withdrawals),
+                "house_cut_percent": GameSettings.get_house_cut()
+            },
+            "settings": {
+                "rigged_mode": GameSettings.get_rigged_mode()
+            }
+        })
     except Exception as e:
         logger.error(f"Stats error: {e}")
         return jsonify({"error": "Failed"}), 500
@@ -1027,9 +1543,15 @@ def admin_stats():
 def list_pending_deposits():
     try:
         deposits = Deposit.query.filter_by(status='pending').order_by(Deposit.created_at.desc()).all()
-        return jsonify([{"id": d.id, "user_id": d.user_id, "username": d.user.username if d.user else None,
-            "first_name": d.user.first_name if d.user else None, "amount": float(d.amount),
-            "created_at": d.created_at.isoformat() if d.created_at else None, "screenshot": d.screenshot_file_id} for d in deposits])
+        return jsonify([{
+            "id": d.id, 
+            "user_id": d.user_id, 
+            "username": d.user.username if d.user else None,
+            "first_name": d.user.first_name if d.user else None, 
+            "amount": float(d.amount),
+            "created_at": d.created_at.isoformat() if d.created_at else None, 
+            "screenshot": d.screenshot_file_id
+        } for d in deposits])
     except Exception as e:
         logger.error(f"Deposits error: {e}")
         return jsonify({"error": "Failed"}), 500
@@ -1054,7 +1576,7 @@ def approve_deposit(deposit_id):
                 user.total_deposited = Decimal(float(user.total_deposited)) + Decimal(float(deposit.amount))
                 transaction = Transaction(user_id=deposit.user_id, type='deposit', amount=deposit.amount, description=f'Deposit #{deposit.id} approved')
                 db.session.add(transaction)
-                send_telegram_message(deposit.user_id, f"✅ Deposit {float(deposit.amount):.0f} ETB approved!\\nBalance: {float(user.balance):.0f} ETB")
+                send_telegram_message(deposit.user_id, f"✅ Deposit {float(deposit.amount):.0f} ETB approved!\nBalance: {float(user.balance):.0f} ETB")
         else:
             deposit.status = 'rejected'
             deposit.approved_at = datetime.utcnow()
@@ -1073,9 +1595,15 @@ def approve_deposit(deposit_id):
 def list_pending_withdrawals():
     try:
         withdrawals = Withdrawal.query.filter_by(status='pending').order_by(Withdrawal.created_at.desc()).all()
-        return jsonify([{"id": w.id, "user_id": w.user_id, "username": w.user.username if w.user else None,
-            "first_name": w.user.first_name if w.user else None, "amount": float(w.amount),
-            "phone_number": w.phone_number, "created_at": w.created_at.isoformat() if w.created_at else None} for w in withdrawals])
+        return jsonify([{
+            "id": w.id, 
+            "user_id": w.user_id, 
+            "username": w.user.username if w.user else None,
+            "first_name": w.user.first_name if w.user else None, 
+            "amount": float(w.amount),
+            "phone_number": w.phone_number, 
+            "created_at": w.created_at.isoformat() if w.created_at else None
+        } for w in withdrawals])
     except Exception as e:
         logger.error(f"Withdrawals error: {e}")
         return jsonify({"error": "Failed"}), 500
@@ -1099,7 +1627,7 @@ def approve_withdrawal(withdrawal_id):
                 user.total_withdrawn = Decimal(float(user.total_withdrawn)) + Decimal(float(withdrawal.amount))
                 transaction = Transaction(user_id=withdrawal.user_id, type='withdrawal', amount=withdrawal.amount, description=f'Withdrawal #{withdrawal.id} approved')
                 db.session.add(transaction)
-                send_telegram_message(withdrawal.user_id, f"✅ Withdrawal {float(withdrawal.amount):.0f} ETB processed!\\nSent to: {withdrawal.phone_number}")
+                send_telegram_message(withdrawal.user_id, f"✅ Withdrawal {float(withdrawal.amount):.0f} ETB processed!\nSent to: {withdrawal.phone_number}")
         else:
             withdrawal.status = 'rejected'
             withdrawal.approved_at = datetime.utcnow()
@@ -1120,12 +1648,17 @@ def approve_withdrawal(withdrawal_id):
 @limiter.limit("30 per minute")
 def admin_settings():
     if request.method == 'GET':
-        return jsonify({"house_cut_percent": GameSettings.get_house_cut(),
-            "welcome_bonus": float(Config.WELCOME_BONUS), "max_cartelas": Config.MAX_CARTELAS_PER_PLAYER,
-            "auto_fill_bots": Config.AUTO_FILL_BOT_COUNT})
+        return jsonify({
+            "house_cut_percent": GameSettings.get_house_cut(),
+            "welcome_bonus": float(Config.WELCOME_BONUS), 
+            "max_cartelas": Config.MAX_CARTELAS_PER_PLAYER,
+            "auto_fill_bots": Config.AUTO_FILL_BOT_COUNT,
+            "rigged_mode": GameSettings.get_rigged_mode()
+        })
     try:
         data = request.get_json(silent=True) or {}
         admin_id = request.telegram_user['id']
+        
         if 'house_cut' in data:
             house_cut = float(data['house_cut'])
             if 0 <= house_cut <= 50:
@@ -1133,12 +1666,123 @@ def admin_settings():
                 logger.info(f"Admin {admin_id} set house cut to {house_cut}%")
             else:
                 return jsonify({"error": "House cut 0-50%"}), 400
-        return jsonify({"success": True, "house_cut": GameSettings.get_house_cut()})
+        
+        if 'rigged_mode' in data:
+            rigged = bool(data['rigged_mode'])
+            GameSettings.set_rigged_mode(rigged, admin_id)
+            logger.info(f"Admin {admin_id} set rigged mode to {rigged}")
+        
+        return jsonify({
+            "success": True, 
+            "house_cut": GameSettings.get_house_cut(),
+            "rigged_mode": GameSettings.get_rigged_mode()
+        })
     except Exception as e:
         db.session.rollback()
         logger.error(f"Settings error: {e}")
         return jsonify({"error": "Failed"}), 500
 
+@app.route('/api/admin/rooms/<room_id>/remove-player', methods=['POST'])
+@require_admin_auth
+@limiter.limit("20 per minute")
+def admin_remove_player(room_id):
+    try:
+        data = request.get_json(silent=True) or {}
+        target_user_id = data.get('user_id')
+        
+        if not target_user_id:
+            return jsonify({"error": "user_id required"}), 400
+        
+        room = Room.query.get_or_404(room_id)
+        if room.status != 'waiting':
+            return jsonify({"error": "Can only remove from waiting rooms"}), 400
+        
+        player = RoomPlayer.query.filter_by(room_id=room_id, user_id=target_user_id).first()
+        if not player:
+            return jsonify({"error": "Player not in room"}), 404
+        
+        target_user = User.query.filter_by(telegram_id=target_user_id).first()
+        if not target_user:
+            return jsonify({"error": "User not found"}), 404
+        
+        stake = Decimal(float(room.stake))
+        cartela_count = player.cartela_count
+        refund = stake * cartela_count
+        
+        target_user.balance = Decimal(float(target_user.balance)) + refund
+        
+        room.pot_amount = Decimal(float(room.pot_amount)) - refund
+        room.total_cartelas = room.total_cartelas - cartela_count
+        
+        db.session.delete(player)
+        
+        transaction = Transaction(
+            user_id=target_user_id,
+            type='admin_remove_refund',
+            amount=refund,
+            reference_id=room_id,
+            description=f'Admin removed from room {room_id}, refunded {float(refund):.0f} ETB'
+        )
+        db.session.add(transaction)
+        db.session.commit()
+        
+        if not target_user.is_bot:
+            send_telegram_message(target_user_id, 
+                f"⚠️ <b>Removed from Room</b>\n"
+                f"You were removed from room <b>{room_id}</b> by admin.\n"
+                f"Refunded: {float(refund):.0f} ETB\n"
+                f"New balance: {float(target_user.balance):.0f} ETB")
+        
+        admin_id = request.telegram_user['id']
+        send_telegram_message(admin_id,
+            f"✅ <b>Player Removed</b>\n"
+            f"Player: {target_user.first_name} (@{target_user.username or 'N/A'})\n"
+            f"Room: {room_id}\n"
+            f"Refunded: {float(refund):.0f} ETB")
+        
+        return jsonify({
+            "success": True,
+            "removed_user_id": target_user_id,
+            "refund_amount": float(refund),
+            "room_id": room_id
+        })
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Admin remove player error: {e}")
+        return jsonify({"error": "Failed to remove player"}), 500
+
+@app.route('/api/admin/rooms/<room_id>/players')
+@require_admin_auth
+@limiter.limit("30 per minute")
+def admin_list_room_players(room_id):
+    try:
+        room = Room.query.get_or_404(room_id)
+        players = RoomPlayer.query.filter_by(room_id=room_id).all()
+        
+        result = []
+        for player in players:
+            user = User.query.filter_by(telegram_id=player.user_id).first()
+            if user:
+                result.append({
+                    "user_id": player.user_id,
+                    "username": user.username,
+                    "first_name": user.first_name,
+                    "is_host": player.is_host,
+                    "is_bot": user.is_bot,
+                    "cartela_count": player.cartela_count,
+                    "selected_cartela_ids": json.loads(player.selected_cartela_ids) if player.selected_cartela_ids else [],
+                    "joined_at": player.joined_at.isoformat() if player.joined_at else None
+                })
+        
+        return jsonify({
+            "room_id": room_id,
+            "status": room.status,
+            "players": result,
+            "total_players": len(result)
+        })
+    except Exception as e:
+        logger.error(f"Admin list players error: {e}")
+        return jsonify({"error": "Failed"}), 500
 # ==================== ERROR HANDLERS ====================
 @app.errorhandler(404)
 def not_found(e):
@@ -1159,6 +1803,10 @@ def init_db():
         try:
             db.create_all()
             logger.info("✅ Database created")
+            
+            _init_pre_generated_cartelas()
+            logger.info(f"✅ {len(_PRE_GENERATED_CARTELAS)} cartelas pre-generated")
+            
             if Config.ADMIN_ID and Config.ADMIN_IDS:
                 for admin_id in Config.ADMIN_IDS:
                     if not Admin.query.filter_by(telegram_id=admin_id).first():
@@ -1201,3 +1849,4 @@ else:
     init_db()
     setup_webhook_async()
     logger.info("🚀 Loaded via WSGI")
+
