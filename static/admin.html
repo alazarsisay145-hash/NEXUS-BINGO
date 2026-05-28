@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEXUS BINGO - Admin</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f0f23;
+            color: #fff;
+            min-height: 100vh;
+        }
+        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 24px;
+            border-radius: 16px;
+            margin-bottom: 24px;
+        }
+        .header h1 { font-size: 24px; font-weight: 800; }
+        .header p { opacity: 0.8; margin-top: 4px; }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: #1a1a2e;
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid #2a2a4e;
+        }
+        .stat-card .label { font-size: 13px; color: #8892b0; margin-bottom: 8px; }
+        .stat-card .value { font-size: 28px; font-weight: 700; color: #38ef7d; }
+        .stat-card .sub { font-size: 12px; color: #667eea; margin-top: 4px; }
+        
+        .section {
+            background: #1a1a2e;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid #2a2a4e;
+        }
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: #a78bfa;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn-primary { background: #667eea; color: white; }
+        .btn-success { background: #11998e; color: white; }
+        .btn-danger { background: #eb3349; color: white; }
+        .btn-secondary { background: #2a2a4e; color: #fff; }
+        .btn-sm { padding: 6px 12px; font-size: 12px; }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #2a2a4e;
+        }
+        th { color: #8892b0; font-weight: 500; font-size: 12px; text-transform: uppercase; }
+        tr:hover { background: #16213e; }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .badge-pending { background: #f59e0b; color: #000; }
+        .badge-approved { background: #10b981; color: #fff; }
+        .badge-rejected { background: #ef4444; color: #fff; }
+        
+        .input {
+            padding: 10px 14px;
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 10px;
+            color: #fff;
+            font-size: 14px;
+            margin-right: 8px;
+        }
+        .input:focus { outline: none; border-color: #667eea; }
+        
+        .toggle-switch {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .toggle {
+            width: 50px;
+            height: 26px;
+            background: #2a2a4e;
+            border-radius: 13px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .toggle.active { background: #667eea; }
+        .toggle::after {
+            content: '';
+            position: absolute;
+            width: 22px; height: 22px;
+            background: #fff;
+            border-radius: 50%;
+            top: 2px; left: 2px;
+            transition: transform 0.3s;
+        }
+        .toggle.active::after { transform: translateX(24px); }
+        
+        .empty { text-align: center; padding: 40px; color: #8892b0; }
+        .loading { text-align: center; padding: 40px; }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 3px solid #667eea;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #1a1a2e;
+            color: #fff;
+            padding: 14px 24px;
+            border-radius: 12px;
+            font-size: 14px;
+            z-index: 2000;
+            border: 1px solid #667eea;
+            transform: translateY(100px);
+            transition: transform 0.3s;
+        }
+        .toast.show { transform: translateY(0); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔧 NEXUS BINGO ADMIN</h1>
+            <p>Admin: Alazar | Telebirr: 0936719379</p>
+        </div>
+        
+        <!-- Stats -->
+        <div class="stats-grid" id="stats">
+            <div class="loading"><div class="spinner"></div></div>
+        </div>
+        
+        <!-- Settings -->
+        <div class="section">
+            <div class="section-title">⚙️ Settings</div>
+            <div class="toggle-switch">
+                <span>🤡 Rigged Mode (Bots Always Win)</span>
+                <div class="toggle" id="rigged-toggle" onclick="toggleRigged()"></div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <span>House Cut %:</span>
+                <input type="number" class="input" id="house-cut" value="10" min="0" max="50" style="width: 80px;">
+                <button class="btn btn-primary btn-sm" onclick="updateHouseCut()">Save</button>
+            </div>
+        </div>
+        
+        <!-- Pending Deposits -->
+        <div class="section">
+            <div class="section-title">
+                <span>💰 Pending Deposits</span>
+                <button class="btn btn-secondary btn-sm" onclick="loadDeposits()">🔄 Refresh</button>
+            </div>
+            <div id="deposits-list">
+                <div class="loading"><div class="spinner"></div></div>
+            </div>
+        </div>
+        
+        <!-- Pending Withdrawals -->
+        <div class="section">
+            <div class="section-title">
+                <span>💸 Pending Withdrawals</span>
+                <button class="btn btn-secondary btn-sm" onclick="loadWithdrawals()">🔄 Refresh</button>
+            </div>
+            <div id="withdrawals-list">
+                <div class="loading"><div class="spinner"></div></div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="toast" id="toast"></div>
+    <script>
+        const API_BASE = '';
+        let tg = window.Telegram?.WebApp;
+        
+        function getAuthHeaders() {
+            if (tg?.initData) return { 'X-Telegram-Init-Data': tg.initData };
+            return {};
+        }
+        
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+        
+        async function loadStats() {
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/stats`, { headers: getAuthHeaders() });
+                const data = await res.json();
+                if (data.error) { showToast('Unauthorized'); return; }
+                
+                document.getElementById('stats').innerHTML = `
+                    <div class="stat-card">
+                        <div class="label">Total Users</div>
+                        <div class="value">${data.users.total}</div>
+                        <div class="sub">${data.users.bots} bots</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Active Games</div>
+                        <div class="value">${data.games.active}</div>
+                        <div class="sub">${data.games.completed} completed</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Pending Deposits</div>
+                        <div class="value">${data.financial.pending_deposits}</div>
+                        <div class="sub">${data.financial.pending_withdrawals} withdrawals</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Total Deposited</div>
+                        <div class="value">${data.financial.total_deposits.toFixed(0)}</div>
+                        <div class="sub">${data.financial.total_withdrawals.toFixed(0)} withdrawn</div>
+                    </div>
+                `;
+                
+                if (data.settings.rigged_mode) {
+                    document.getElementById('rigged-toggle').classList.add('active');
+                }
+            } catch (e) {
+                showToast('Failed to load stats');
+            }
+        }
+        
+        async function loadDeposits() {
+            const list = document.getElementById('deposits-list');
+            list.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+            
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/deposits`, { headers: getAuthHeaders() });
+                const deposits = await res.json();
+                if (!Array.isArray(deposits) || deposits.length === 0) {
+                    list.innerHTML = '<div class="empty">No pending deposits</div>';
+                    return;
+                }
+                
+                list.innerHTML = `
+                    <table>
+                        <tr><th>ID</th><th>User</th><th>Amount</th><th>Date</th><th>Actions</th></tr>
+                        ${deposits.map(d => `
+                            <tr>
+                                <td>#${d.id}</td>
+                                <td>${d.first_name} (@${d.username || 'N/A'})</td>
+                                <td>${d.amount.toFixed(0)} ETB</td>
+                                <td>${new Date(d.created_at).toLocaleDateString()}</td>
+                                <td>
+                                    <button class="btn btn-success btn-sm" onclick="approveDeposit(${d.id}, true)">✅</button>
+                                    <button class="btn btn-danger btn-sm" onclick="approveDeposit(${d.id}, false)">❌</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </table>
+                `;
+            } catch (e) {
+                list.innerHTML = '<div class="empty">Failed to load</div>';
+            }
+        }
+        
+        async function loadWithdrawals() {
+            const list = document.getElementById('withdrawals-list');
+            list.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+            
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/withdrawals`, { headers: getAuthHeaders() });
+                const withdrawals = await res.json();
+                if (!Array.isArray(withdrawals) || withdrawals.length === 0) {
+                    list.innerHTML = '<div class="empty">No pending withdrawals</div>';
+                    return;
+                }
+                
+                list.innerHTML = `
+                    <table>
+                        <tr><th>ID</th><th>User</th><th>Amount</th><th>Phone</th><th>Actions</th></tr>
+                        ${withdrawals.map(w => `
+                            <tr>
+                                <td>#${w.id}</td>
+                                <td>${w.first_name} (@${w.username || 'N/A'})</td>
+                                <td>${w.amount.toFixed(0)} ETB</td>
+                                <td>${w.phone_number || 'N/A'}</td>
+                                <td>
+                                    <button class="btn btn-success btn-sm" onclick="approveWithdrawal(${w.id}, true)">✅</button>
+                                    <button class="btn btn-danger btn-sm" onclick="approveWithdrawal(${w.id}, false)">❌</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </table>
+                `;
+            } catch (e) {
+                list.innerHTML = '<div class="empty">Failed to load</div>';
+            }
+        }
+        
+        async function approveDeposit(id, approved) {
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/deposits/${id}/approve`, {
+                    method: 'POST',
+                    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ approved })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(approved ? '✅ Deposit approved!' : '❌ Deposit rejected!');
+                    loadDeposits();
+                    loadStats();
+                }
+            } catch (e) {
+                showToast('Action failed');
+            }
+        }
+        
+        async function approveWithdrawal(id, approved) {
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/withdrawals/${id}/approve`, {
+                    method: 'POST',
+                    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ approved })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(approved ? '✅ Withdrawal approved!' : '❌ Withdrawal rejected!');
+                    loadWithdrawals();
+                    loadStats();
+                }
+            } catch (e) {
+                showToast('Action failed');
+            }
+        }
+        
+        async function toggleRigged() {
+            const toggle = document.getElementById('rigged-toggle');
+            const enabled = !toggle.classList.contains('active');
+            
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/settings`, {
+                    method: 'POST',
+                    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ rigged_mode: enabled })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    toggle.classList.toggle('active', enabled);
+                    showToast(enabled ? '🤡 Rigged mode ON!' : '✅ Fair mode ON!');
+                }
+            } catch (e) {
+                showToast('Failed to toggle');
+            }
+        }
+        
+        async function updateHouseCut() {
+            const cut = parseFloat(document.getElementById('house-cut').value);
+            if (cut < 0 || cut > 50) { showToast('0-50% only'); return; }
+            
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/settings`, {
+                    method: 'POST',
+                    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ house_cut: cut })
+                });
+                const data = await res.json();
+                if (data.success) showToast('✅ House cut updated!');
+            } catch (e) {
+                showToast('Failed to update');
+            }
+        }
+        
+        // Init
+        if (tg) { tg.expand(); tg.ready(); }
+        loadStats();
+        loadDeposits();
+        loadWithdrawals();
+        setInterval(() => { loadStats(); loadDeposits(); loadWithdrawals(); }, 30000);
+    </script>
+</body>
+</html>
