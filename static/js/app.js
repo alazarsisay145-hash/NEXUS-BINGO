@@ -1,4 +1,4 @@
-// NEXUS BINGO - Frontend JavaScript
+// NEXUS BINGO - Frontend JavaScript (PLAYER ONLY)
 const API_BASE = '';
 let tg = window.Telegram?.WebApp;
 let currentUser = null;
@@ -192,7 +192,6 @@ async function createRoom() {
     const maxPlayers = parseInt(document.getElementById('create-max-players').value);
     const cartelas = parseInt(document.getElementById('create-cartelas').value);
     const isPrivate = document.getElementById('create-private').checked;
-    const rigged = document.getElementById('create-rigged').checked;
     
     if (!stake || stake < 1) { showToast('Invalid stake'); return; }
     if (maxPlayers < 1 || maxPlayers > 1000) { showToast('Players must be 1-1000'); return; }
@@ -203,7 +202,7 @@ async function createRoom() {
         max_players: maxPlayers,
         cartelas,
         is_private: isPrivate,
-        rigged_mode: rigged,
+        rigged_mode: false, // Players cannot set rigged mode
         cartela_selection: createRoomData.selectionMode,
         selected_cartela_ids: createRoomData.selectedIds
     };
