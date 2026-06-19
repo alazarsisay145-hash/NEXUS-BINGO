@@ -74,6 +74,11 @@
             background: #2a2a4e;
             color: #fff;
         }
+        .btn-half {
+            width: calc(50% - 4px);
+            display: inline-block;
+        }
+        .btn-half:nth-child(even) { margin-left: 8px; }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn:active { transform: scale(0.98); }
         
@@ -342,22 +347,6 @@
         .info-row:last-child { border-bottom: none; }
         .info-label { color: #8892b0; }
         .info-value { font-weight: 600; }
-        
-        .pagination {
-            display: flex;
-            justify-content: center;
-            gap: 8px;
-            margin-top: 12px;
-        }
-        .page-btn {
-            padding: 8px 14px;
-            background: #16213e;
-            border: none;
-            border-radius: 8px;
-            color: #fff;
-            cursor: pointer;
-        }
-        .page-btn:disabled { opacity: 0.3; }
     </style>
 </head>
 <body>
@@ -452,8 +441,8 @@
             </label>
             <div style="margin-bottom: 12px;">
                 <label style="font-size: 14px; margin-bottom: 8px; display: block;">Cartela Selection:</label>
-                <button class="btn btn-secondary" onclick="toggleCartelaSelection('random')" id="btn-random" style="display: inline-block; width: 48%;">🎲 Random</button>
-                <button class="btn btn-secondary" onclick="openCartelaPicker()" id="btn-manual" style="display: inline-block; width: 48%;">🎯 Pick 1-500</button>
+                <button class="btn btn-secondary btn-half" onclick="toggleCartelaSelection('random')" id="btn-random" style="margin-bottom: 0;">🎲 Random</button>
+                <button class="btn btn-secondary btn-half" onclick="openCartelaPicker()" id="btn-manual" style="margin-bottom: 0;">🎯 Pick 1-500</button>
             </div>
             <div id="selected-cartelas-display" style="font-size: 14px; color: #38ef7d; margin-bottom: 12px;"></div>
             <button class="btn btn-primary" onclick="createRoom()">🚀 Create & Join</button>
@@ -469,7 +458,6 @@
                 Click to select/deselect (max <span id="max-cartelas-allowed">3</span>)
             </div>
             <div class="cartela-selector" id="cartela-selector"></div>
-            <div class="pagination" id="cartela-pagination"></div>
             <div style="text-align: center; margin: 12px 0;">
                 <span id="selected-count" style="color: #38ef7d; font-weight: 600;">Selected: 0</span>
             </div>
