@@ -291,38 +291,116 @@ async function joinByCode() {
     }
 }
 
-// Game
+// ============================================================
+// GAME - Updated with better polling and UI
+// ============================================================
+
 function enterRoom(roomId) {
     currentRoom = roomId;
     document.querySelectorAll('.tab')[1].click();
     document.getElementById('game-active').classList.remove('hidden');
     document.getElementById('game-inactive').classList.add('hidden');
     
-    if (gamePollInterval) clearInterval(gamePollInterval);
+    // Clear any existing interval first
+    if (gamePollInterval) {
+        clearInterval(gamePollInterval);
+        gamePollInterval = null;
+    }
+    
+    // Load immediately, then start polling every 2 seconds
     loadRoomState(roomId);
-    gamePollInterval = setInterval(() => loadRoomState(roomId), 3000);
+    gamePollInterval = setInterval(() => {
+        if (currentRoom) {
+            loadRoomState(currentRoom);
+        }
+    }, 2000);
+}
+
+function leaveRoom() {
+    if (gamePollInterval) {
+        clearInterval(gamePollInterval);
+        gamePollInterval = null;
+    }
+    currentRoom = null;
+    document.getElementById('game-active').classList.add('hidden');
+    document.getElementById('game-inactive').classList.remove('hidden');
+    showTab('rooms');
 }
 
 async function loadRoomState(roomId) {
     try {
         const res = await fetch(`${API_BASE}/api/rooms/${roomId}/state`, { headers: getAuthHeaders() });
         const state = await res.json();
-        if (state.error) return;
+        if (state.error) {
+            if (state.error.includes('not found') || state.error.includes('not in room')) {
+                leaveRoom();
+                showToast('You were removed from the room');
+            }
+            return;
+        }
         
-        document.getElementById('current-call').textContent = state.current_call || '--';
-        document.getElementById('game-status').textContent = state.status;
-        document.getElementById('game-status').className = `status status-${state.status}`;
+        // Update current call with animation
+        const currentCallEl = document.getElementById('current-call');
+        const newCall = state.current_call;
+        const oldCall = currentCallEl.dataset.lastCall;
         
+        if (newCall && newCall !== oldCall) {
+            currentCallEl.textContent = newCall;
+            currentCallEl.dataset.lastCall = newCall;
+            currentCallEl.classList.add('new-call');
+            setTimeout(() => currentCallEl.classList.remove('new-call'), 1000);
+        } else if (!newCall) {
+            currentCallEl.textContent = '--';
+            currentCallEl.dataset.lastCall = '';
+        }
+        
+        // Update game status
+        const statusEl = document.getElementById('game-status');
+        statusEl.textContent = state.status;
+        statusEl.className = `status status-${state.status}`;
+        
+        // Update called numbers grid (sorted)
         const calledDiv = document.getElementById('called-numbers');
-        calledDiv.innerHTML = (state.called_numbers || []).map(n => 
+        const calledNumbers = state.called_numbers || [];
+        const sortedCalled = [...calledNumbers].sort((a, b) => a - b);
+        
+        calledDiv.innerHTML = sortedCalled.map(n => 
             `<span class="called-number">${n}</span>`
         ).join('');
         
-        renderMyCartelas(state.my_cartelas, state.my_marked, state.called_numbers);
+        // Update cartelas
+        renderMyCartelas(state.my_cartelas, state.my_marked, calledNumbers);
         
+        // Update room info if available
+        if (state.pot !== undefined) {
+            const potEl = document.getElementById('game-pot');
+            if (potEl) potEl.textContent = `${state.pot.toFixed(0)} ETB`;
+        }
+        if (state.players !== undefined) {
+            const playersEl = document.getElementById('game-players');
+            if (playersEl) playersEl.textContent = `${state.players} players`;
+        }
+        
+        // Game over handling
         if (state.status === 'completed') {
             clearInterval(gamePollInterval);
-            showToast('🎉 Game Over! Check Telegram for winner.');
+            gamePollInterval = null;
+            
+            if (state.winner) {
+                if (state.winner.id === currentUser?.id) {
+                    showToast('🎉 YOU WON! Check your balance!');
+                    confetti();
+                } else {
+                    showToast(`🏆 ${state.winner.name} won the game!`);
+                }
+            } else {
+                showToast('Game ended with no winner.');
+            }
+            
+            // Show a "Back to Rooms" button or auto-return after delay
+            setTimeout(() => {
+                leaveRoom();
+            }, 5000);
         }
     } catch (e) {
         console.error('Room state error:', e);
@@ -336,19 +414,32 @@ function renderMyCartelas(cartelas, marked, calledNumbers) {
         return;
     }
     
+    const calledSet = new Set(calledNumbers || []);
+    
     container.innerHTML = cartelas.map((cartela, cidx) => `
-        <div style="margin-bottom: 20px;">
-            <div style="text-align: center; font-size: 14px; color: #a78bfa; margin-bottom: 8px;">
-                Cartela #${cidx + 1}
+        <div class="cartela-wrapper" data-cartela="${cidx}">
+            <div class="cartela-header">
+                <span>Cartela #${cidx + 1}</span>
+                <span class="cartela-progress">${countMarked(marked, cidx)}/25</span>
             </div>
             <div class="cartela-grid">
                 ${cartela.map((num, idx) => {
                     const isMarked = marked && marked[cidx] && marked[cidx].includes(idx);
-                    const isCalled = calledNumbers && calledNumbers.includes(num);
+                    const isCalled = calledSet.has(num) && num !== 0;
                     const isFree = num === 0;
+                    
+                    // Determine cell classes
+                    let classes = ['cartela-cell'];
+                    if (isFree) classes.push('free');
+                    if (isMarked) classes.push('marked');
+                    if (isCalled && !isFree && !isMarked) classes.push('called');
+                    
                     return `
-                        <div class="cartela-cell ${isMarked ? 'marked' : ''} ${isFree ? 'free' : ''} ${isCalled && !isFree ? 'called' : ''}"
-                             onclick="markNumber('${currentRoom}', ${cidx}, ${idx})">
+                        <div class="${classes.join(' ')}"
+                             data-number="${num}"
+                             data-cartela="${cidx}"
+                             data-index="${idx}"
+                             onclick="handleCellClick(this, '${currentRoom}', ${cidx}, ${idx}, ${num})">
                             ${isFree ? '★' : num}
                         </div>
                     `;
@@ -356,6 +447,32 @@ function renderMyCartelas(cartelas, marked, calledNumbers) {
             </div>
         </div>
     `).join('');
+}
+
+function countMarked(marked, cidx) {
+    if (!marked || !marked[cidx]) return 0;
+    return marked[cidx].length;
+}
+
+function handleCellClick(cell, roomId, cartelaIdx, numberIdx, number) {
+    // Don't allow clicking if game isn't active
+    const statusEl = document.getElementById('game-status');
+    if (statusEl && statusEl.textContent !== 'active') {
+        showToast('Wait for the game to start!');
+        return;
+    }
+    
+    // Don't allow clicking free space (it's auto-marked)
+    if (number === 0) return;
+    
+    // Don't allow clicking uncalled numbers
+    if (!cell.classList.contains('called') && !cell.classList.contains('marked')) {
+        showToast('That number hasn\'t been called yet!');
+        return;
+    }
+    
+    // Toggle mark
+    markNumber(roomId, cartelaIdx, numberIdx);
 }
 
 async function markNumber(roomId, cartelaIdx, numberIdx) {
@@ -366,11 +483,30 @@ async function markNumber(roomId, cartelaIdx, numberIdx) {
             body: JSON.stringify({ cartela_index: cartelaIdx, number_index: numberIdx })
         });
         const data = await res.json();
+        
+        if (data.error) {
+            showToast(data.error);
+            return;
+        }
+        
         if (data.winner) {
             showToast('🎉 BINGO! YOU WON!');
             confetti();
-        } else if (data.marked) {
+            // Refresh state to show final board
             loadRoomState(roomId);
+        } else if (data.marked) {
+            // Optimistically update UI before next poll
+            const cell = document.querySelector(`[data-cartela="${cartelaIdx}"][data-index="${numberIdx}"]`);
+            if (cell) {
+                cell.classList.add('marked');
+                cell.classList.remove('called');
+            }
+            // Update progress counter
+            const progressEl = document.querySelector(`.cartela-wrapper[data-cartela="${cartelaIdx}"] .cartela-progress`);
+            if (progressEl) {
+                const current = parseInt(progressEl.textContent.split('/')[0]) || 0;
+                progressEl.textContent = `${current + 1}/25`;
+            }
         }
     } catch (e) {
         showToast('Failed to mark number');
