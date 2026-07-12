@@ -1,5 +1,4 @@
-
-merged_js = '''// NEXUS BINGO - Frontend JavaScript
+// NEXUS BINGO - Frontend JavaScript
 // Features: Voice calling, BINGO button, fast gameplay, straight line patterns
 
 const API_BASE = '';
@@ -68,20 +67,20 @@ function showTab(tab) {
 // ============================================================
 function speakNumber(call) {
     if (!voiceEnabled || !call) return;
-    
+
     // Extract letter and number: "B12" → "B 12"
     const letter = call.charAt(0);
     const number = call.slice(1);
-    
+
     // Cancel any ongoing speech
     speechSynthesis.cancel();
-    
+
     const utterance = new SpeechSynthesisUtterance(`${letter} ${number}`);
     utterance.rate = 0.85;
     utterance.pitch = 1.0;
     utterance.volume = 1.0;
     utterance.lang = 'en-US';
-    
+
     speechSynthesis.speak(utterance);
 }
 
@@ -98,7 +97,7 @@ function toggleVoice() {
 
 function showStakeSelector() {
     const list = document.getElementById('rooms-list');
-    
+
     list.innerHTML = `
         <div class="section">
             <div class="section-title">🎯 Choose Your Stake</div>
@@ -116,14 +115,14 @@ function showStakeSelector() {
                 `).join('')}
             </div>
         </div>
-        
+
         <div class="section">
             <div class="section-title">⚙️ Options</div>
             <button class="btn btn-secondary" onclick="openCreateRoom()">🏠 Create Private Room</button>
             <button class="btn btn-secondary" onclick="openJoinByCode()">🔑 Join by Code</button>
         </div>
     `;
-    
+
     loadStakeCounts();
 }
 
@@ -131,7 +130,7 @@ async function loadStakeCounts() {
     try {
         const res = await fetch(`${API_BASE}/api/rooms/stake-counts`, { headers: getAuthHeaders() });
         const counts = await res.json();
-        
+
         STAKE_LEVELS.forEach(stake => {
             const el = document.getElementById(`stake-count-${stake}`);
             if (el) {
@@ -150,15 +149,15 @@ async function loadStakeCounts() {
 async function joinRoomByStake(stake) {
     const cartelas = prompt('How many cartelas? (1-3)', '1');
     if (!cartelas) return;
-    
+
     const numCartelas = parseInt(cartelas);
     if (numCartelas < 1 || numCartelas > 3) {
         showToast('Cartelas must be 1-3');
         return;
     }
-    
+
     showToast(`🎮 Joining ${stake} ETB room...`);
-    
+
     try {
         const res = await fetch(`${API_BASE}/api/rooms/join-by-stake`, {
             method: 'POST',
@@ -166,15 +165,15 @@ async function joinRoomByStake(stake) {
             body: JSON.stringify({ stake: stake, cartelas: numCartelas })
         });
         const data = await res.json();
-        
+
         if (data.error) { 
             showToast(data.error); 
             return; 
         }
-        
+
         showToast(`✅ Joined ${stake} ETB room!`);
         enterRoom(data.room_id);
-        
+
     } catch (e) {
         showToast('Failed to join room. Try again.');
     }
@@ -188,16 +187,16 @@ function enterRoom(roomId) {
     currentRoom = roomId;
     hasShownBingo = false;
     lastCall = null;
-    
+
     document.querySelectorAll('.tab')[1].click();
     document.getElementById('game-active').classList.remove('hidden');
     document.getElementById('game-inactive').classList.add('hidden');
-    
+
     if (gamePollInterval) {
         clearInterval(gamePollInterval);
         gamePollInterval = null;
     }
-    
+
     loadRoomState(roomId);
     gamePollInterval = setInterval(() => {
         if (currentRoom) {
@@ -231,44 +230,44 @@ async function loadRoomState(roomId) {
             }
             return;
         }
-        
+
         // Update current call with VOICE
         const currentCallEl = document.getElementById('current-call');
         const newCall = state.current_call;
         const oldCall = currentCallEl.dataset.lastCall;
-        
+
         if (newCall && newCall !== oldCall) {
             currentCallEl.textContent = newCall;
             currentCallEl.dataset.lastCall = newCall;
             currentCallEl.classList.add('new-call');
             setTimeout(() => currentCallEl.classList.remove('new-call'), 1000);
-            
+
             // NEW: Speak the number!
             speakNumber(newCall);
-            
+
             lastCall = newCall;
         } else if (!newCall) {
             currentCallEl.textContent = '--';
             currentCallEl.dataset.lastCall = '';
         }
-        
+
         // Update game status
         const statusEl = document.getElementById('game-status');
         statusEl.textContent = state.status;
         statusEl.className = `status status-${state.status}`;
-        
+
         // Update called numbers grid
         const calledDiv = document.getElementById('called-numbers');
         const calledNumbers = state.called_numbers || [];
         const sortedCalled = [...calledNumbers].sort((a, b) => a - b);
-        
+
         calledDiv.innerHTML = sortedCalled.map(n => 
             `<span class="called-number">${n}</span>`
         ).join('');
-        
+
         // Update cartelas (with BINGO detection)
         renderMyCartelas(state.my_cartelas, state.my_marked, calledNumbers);
-        
+
         // Update room info
         if (state.pot !== undefined) {
             const potEl = document.getElementById('game-pot');
@@ -278,17 +277,17 @@ async function loadRoomState(roomId) {
             const playersEl = document.getElementById('game-players');
             if (playersEl) playersEl.textContent = `👥 ${state.players}/${state.max_players || 20}`;
         }
-        
+
         // Check for bingo claimed (hide button)
         if (state.bingo_claimed) {
             hideBingoButton();
         }
-        
+
         // Game over handling
         if (state.status === 'completed') {
             clearInterval(gamePollInterval);
             gamePollInterval = null;
-            
+
             if (state.winner) {
                 if (state.winner.id === currentUser?.id) {
                     showToast('🎉 YOU WON! Check your balance!');
@@ -299,7 +298,7 @@ async function loadRoomState(roomId) {
             } else {
                 showToast('Game ended with no winner.');
             }
-            
+
             setTimeout(() => {
                 leaveRoom();
             }, 5000);
@@ -315,15 +314,15 @@ function renderMyCartelas(cartelas, marked, calledNumbers) {
         container.innerHTML = '<div class="empty-state"><div class="icon">🎫</div><div>No cartelas yet</div></div>';
         return;
     }
-    
+
     const calledSet = new Set(calledNumbers || []);
     let anyHasBingo = false;
-    
+
     container.innerHTML = cartelas.map((cartela, cidx) => {
         const cartelaMarked = (marked && marked[cidx]) || [];
         const hasBingo = checkStraightLine(cartelaMarked);
         if (hasBingo) anyHasBingo = true;
-        
+
         return `
             <div class="cartela-wrapper" data-cartela="${cidx}">
                 <div class="cartela-header">
@@ -335,12 +334,12 @@ function renderMyCartelas(cartelas, marked, calledNumbers) {
                         const isMarked = cartelaMarked.includes(idx);
                         const isCalled = calledSet.has(num) && num !== 0;
                         const isFree = num === 0;
-                        
+
                         let classes = ['cartela-cell'];
                         if (isFree) classes.push('free');
                         if (isMarked) classes.push('marked');
                         if (isCalled && !isFree && !isMarked) classes.push('called');
-                        
+
                         return `
                             <div class="${classes.join(' ')}"
                                  data-number="${num}"
@@ -355,7 +354,7 @@ function renderMyCartelas(cartelas, marked, calledNumbers) {
             </div>
         `;
     }).join('');
-    
+
     // NEW: Show BINGO button if any cartela has a straight line
     if (anyHasBingo && !hasShownBingo && !gameState?.bingo_claimed) {
         showBingoButton();
@@ -366,7 +365,7 @@ function renderMyCartelas(cartelas, marked, calledNumbers) {
 function checkStraightLine(marked) {
     if (!marked || marked.length < 5) return false;
     const m = new Set(marked);
-    
+
     // Rows
     for (let row = 0; row < 5; row++) {
         if ([0,1,2,3,4].every(col => m.has(row * 5 + col))) return true;
@@ -378,7 +377,7 @@ function checkStraightLine(marked) {
     // Diagonals
     if ([0,6,12,18,24].every(i => m.has(i))) return true;
     if ([4,8,12,16,20].every(i => m.has(i))) return true;
-    
+
     return false;
 }
 
@@ -388,14 +387,14 @@ function handleCellClick(cell, roomId, cartelaIdx, numberIdx, number) {
         showToast('Wait for the game to start!');
         return;
     }
-    
+
     if (number === 0) return;
-    
+
     if (!cell.classList.contains('called') && !cell.classList.contains('marked')) {
         showToast("That number hasn't been called yet!");
         return;
     }
-    
+
     markNumber(roomId, cartelaIdx, numberIdx);
 }
 
@@ -407,17 +406,17 @@ async function markNumber(roomId, cartelaIdx, numberIdx) {
             body: JSON.stringify({ cartela_index: cartelaIdx, number_index: numberIdx })
         });
         const data = await res.json();
-        
+
         if (data.error) {
             showToast(data.error);
             return;
         }
-        
+
         // NEW: Check if server says we have bingo
         if (data.has_bingo && !hasShownBingo) {
             showBingoButton();
         }
-        
+
         if (data.marked) {
             const cell = document.querySelector(`[data-cartela="${cartelaIdx}"][data-index="${numberIdx}"]`);
             if (cell) {
@@ -441,7 +440,7 @@ async function markNumber(roomId, cartelaIdx, numberIdx) {
 function showBingoButton() {
     if (hasShownBingo) return;
     hasShownBingo = true;
-    
+
     let btn = document.getElementById('bingo-btn');
     if (!btn) {
         btn = document.createElement('button');
@@ -467,7 +466,7 @@ function showBingoButton() {
         `;
         btn.onclick = claimBingo;
         document.body.appendChild(btn);
-        
+
         const style = document.createElement('style');
         style.textContent = `
             @keyframes bingoPulse {
@@ -477,9 +476,9 @@ function showBingoButton() {
         `;
         document.head.appendChild(style);
     }
-    
+
     btn.style.display = 'block';
-    
+
     // Speak alert
     const bingoAlert = new SpeechSynthesisUtterance('Bingo! Click the button now!');
     bingoAlert.rate = 0.9;
@@ -498,18 +497,18 @@ async function claimBingo() {
             method: 'POST',
             headers: getAuthHeaders()
         });
-        
+
         const data = await res.json();
         if (data.success) {
             hideBingoButton();
             showToast('🎉 BINGO! YOU WON!', 5000);
-            
+
             // Victory speech
             const victory = new SpeechSynthesisUtterance('Congratulations! You won!');
             victory.rate = 0.8;
             victory.pitch = 1.3;
             speechSynthesis.speak(victory);
-            
+
             confetti();
             clearInterval(gamePollInterval);
             setTimeout(() => location.reload(), 4000);
@@ -529,12 +528,12 @@ async function claimBingo() {
 function openCreateRoom() {
     const stake = parseInt(prompt('Stake per cartela (ETB):', '10'));
     if (!stake || stake < 1) return;
-    
+
     const cartelas = parseInt(prompt('Cartelas (1-3):', '1'));
     if (!cartelas || cartelas < 1 || cartelas > 3) return;
-    
+
     const isPrivate = confirm('Make this room private?');
-    
+
     fetch(`${API_BASE}/api/rooms`, {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
@@ -555,9 +554,9 @@ function openCreateRoom() {
 function openJoinByCode() {
     const code = prompt('Enter invite code:');
     if (!code) return;
-    
+
     const cartelas = parseInt(prompt('Cartelas (1-3):', '1')) || 1;
-    
+
     fetch(`${API_BASE}/api/rooms/join-by-code`, {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
@@ -578,7 +577,7 @@ async function loadProfile() {
     try {
         const res = await fetch(`${API_BASE}/api/user/profile`, { headers: getAuthHeaders() });
         const user = await res.json();
-        
+
         document.getElementById('profile-info').innerHTML = `
             <div class="info-row"><span class="info-label">Name:</span><span class="info-value">${user.first_name} ${user.last_name || ''}</span></div>
             <div class="info-row"><span class="info-label">Username:</span><span class="info-value">@${user.username || 'N/A'}</span></div>
@@ -587,7 +586,7 @@ async function loadProfile() {
             <div class="info-row"><span class="info-label">Games Won:</span><span class="info-value">${user.stats.games_won}</span></div>
             <div class="info-row"><span class="info-label">Win Rate:</span><span class="info-value">${user.stats.win_rate}%</span></div>
         `;
-        
+
         loadTransactions();
     } catch (e) {
         document.getElementById('profile-info').innerHTML = '<div class="empty-state">Failed to load profile</div>';
@@ -598,13 +597,13 @@ async function loadTransactions() {
     try {
         const res = await fetch(`${API_BASE}/api/user/transactions`, { headers: getAuthHeaders() });
         const txs = await res.json();
-        
+
         const list = document.getElementById('transactions-list');
         if (txs.length === 0) {
             list.innerHTML = '<div style="text-align:center;color:#8892b0;padding:20px;">No transactions yet</div>';
             return;
         }
-        
+
         list.innerHTML = txs.slice(0, 10).map(t => `
             <div class="info-row">
                 <span class="info-label">${t.type}</span>
@@ -627,7 +626,7 @@ function openWithdraw() { openModal('modal-withdraw'); }
 async function requestDeposit() {
     const amount = parseFloat(document.getElementById('deposit-amount').value);
     if (!amount || amount < 10) { showToast('Min deposit 10 ETB'); return; }
-    
+
     try {
         const res = await fetch(`${API_BASE}/api/user/deposit`, {
             method: 'POST',
@@ -636,7 +635,7 @@ async function requestDeposit() {
         });
         const data = await res.json();
         if (data.error) { showToast(data.error); return; }
-        
+
         showToast(`✅ Deposit #${data.deposit_id} requested!`);
         showToast(`📱 Send ${amount} ETB to 0936719379 (Alazar)`);
         closeModal('modal-deposit');
@@ -650,7 +649,7 @@ async function requestWithdrawal() {
     const phone = document.getElementById('withdraw-phone').value;
     if (!amount || amount < 50) { showToast('Min withdrawal 50 ETB'); return; }
     if (!phone) { showToast('Enter phone number'); return; }
-    
+
     try {
         const res = await fetch(`${API_BASE}/api/user/withdraw`, {
             method: 'POST',
@@ -659,7 +658,7 @@ async function requestWithdrawal() {
         });
         const data = await res.json();
         if (data.error) { showToast(data.error); return; }
-        
+
         showToast(`✅ Withdrawal #${data.withdrawal_id} requested!`);
         closeModal('modal-withdraw');
         loadProfile();
@@ -705,10 +704,3 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
         if (e.target === overlay) overlay.classList.remove('active');
     });
 });
-'''
-
-with open('/mnt/agents/output/app.js', 'w') as f:
-    f.write(merged_js)
-
-print("Merged app.js written successfully!")
-print(f"File size: {len(merged_js)} characters")
