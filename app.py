@@ -591,7 +591,7 @@ class GameManager:
     _room_locks = {}
     _room_states = {}
     _global_lock = threading.RLock()
-    _active_threads = {}  # Track active thread objects
+    _active_threads = {}
 
     def __new__(cls):
         if cls._instance is None:
@@ -717,7 +717,6 @@ class GameManager:
             thread.start()
 
     def _run_game_loop(self, room_id):
-        """Main game loop - runs inside app_context"""
         logger.info(f"Initializing game loop for room {room_id}")
 
         room = Room.query.get(room_id)
@@ -736,13 +735,11 @@ class GameManager:
         call_count = 0
 
         while available_numbers:
-            # Sleep between calls
             sleep_time = random.uniform(Config.CALL_INTERVAL_MIN, Config.CALL_INTERVAL_MAX)
             logger.info(f"Room {room_id}: sleeping {sleep_time:.1f}s before next call")
             time.sleep(sleep_time)
 
             try:
-                # Refresh room from DB
                 room = Room.query.get(room_id)
                 if not room:
                     logger.error(f"Room {room_id} disappeared during game")
@@ -756,7 +753,6 @@ class GameManager:
                         logger.info(f"Room {room_id}: no more numbers available")
                         break
 
-                    # Select number
                     if rigged_mode:
                         number = self._select_rigged_number(room_id, available_numbers)
                     else:
@@ -765,12 +761,10 @@ class GameManager:
                     letter = get_letter_for_number(number)
                     call_str = f"{letter}{number}"
 
-                    # Update room
                     room.add_called_number(number)
                     db.session.commit()
                     call_count += 1
 
-                    # Update cache
                     self._room_states[room_id] = {
                         "current_call": call_str,
                         "called_numbers": room.get_called_numbers(),
@@ -778,17 +772,14 @@ class GameManager:
                         "timestamp": time.time()
                     }
 
-                    # Record game call
                     game_call = GameCall(room_id=room_id, call_number=call_str, number_value=number)
                     db.session.add(game_call)
                     db.session.commit()
 
                     logger.info(f"Room {room_id}: Called {call_str} (#{call_count})")
 
-                    # Auto-mark for bots
                     self._auto_mark_for_bots(room_id, number)
 
-                    # Check for winner
                     winner = self._check_for_winner(room_id)
                     if winner:
                         logger.info(f"Room {room_id}: Winner found - user {winner}")
@@ -800,7 +791,6 @@ class GameManager:
                 db.session.rollback()
                 time.sleep(2)
 
-        # Game ended naturally or ran out of numbers
         logger.info(f"Room {room_id}: Game loop ended after {call_count} calls")
         try:
             if rigged_mode:
@@ -812,7 +802,6 @@ class GameManager:
             logger.error(f"Error ending game for room {room_id}: {e}", exc_info=True)
 
     def _select_rigged_number(self, room_id, available_numbers):
-        """Select a number that helps bots win"""
         bot_players = RoomPlayer.query.filter_by(room_id=room_id, is_fake=True).all()
         if not bot_players:
             return available_numbers.pop(random.randint(0, len(available_numbers) - 1))
@@ -842,7 +831,6 @@ class GameManager:
             return available_numbers.pop(random.randint(0, len(available_numbers) - 1))
 
     def _check_would_win(self, marked):
-        """Check if marked numbers would win"""
         if len(marked) < 5:
             return False
         for row in range(5):
@@ -949,7 +937,7 @@ class GameManager:
                         db.session.add(transaction)
 
                         if not winner.is_bot:
-                            send_telegram_message(winner_id, f"🎉 You won {win_amount:.0f} ETB!\\nNew balance: {float(winner.balance):.0f} ETB")
+                            send_telegram_message(winner_id, f"🎉 You won {win_amount:.0f} ETB!\nNew balance: {float(winner.balance):.0f} ETB")
 
                         if Config.ADMIN_ID:
                             rigged_text = " (RIGGED)" if room.rigged_mode else ""
@@ -957,9 +945,9 @@ class GameManager:
 
                 db.session.commit()
 
-                announcement = f"🏆 <b>Game Over!</b>\\n\\nWinner: <b>{winner_name}</b>\\nRoom: {room.id}\\nPrize: {float(room.pot_amount):.0f} ETB"
+                announcement = f"🏆 <b>Game Over!</b>\n\nWinner: <b>{winner_name}</b>\nRoom: {room.id}\nPrize: {float(room.pot_amount):.0f} ETB"
                 if room.rigged_mode:
-                    announcement += "\\n⚠️ Rigged Mode was ON"
+                    announcement += "\n⚠️ Rigged Mode was ON"
                 send_telegram_message_to_all_players(room_id, announcement)
 
             except Exception as e:
@@ -1030,12 +1018,12 @@ def webhook():
                         reply_markup={"inline_keyboard": [[{"text": "🎮 Register & Play", "web_app": {"url": Config.WEBAPP_URL}}]]})
 
             elif text.startswith('/admin') and chat_id in Config.ADMIN_IDS:
-                send_telegram_message(chat_id, "🔧 <b>Admin Panel</b>\\nUse web interface for full controls.")
+                send_telegram_message(chat_id, "🔧 <b>Admin Panel</b>\nUse web interface for full controls.")
 
             elif text == '/register':
                 user_db = User.query.filter_by(telegram_id=chat_id).first()
                 if user_db:
-                    send_telegram_message(chat_id, f"✅ Already registered!\\nBalance: {float(user_db.balance):.2f} ETB")
+                    send_telegram_message(chat_id, f"✅ Already registered!\nBalance: {float(user_db.balance):.2f} ETB")
                 else:
                     from_user = message.get('from', {})
                     new_user = User(
@@ -1070,7 +1058,7 @@ def webhook():
 
             elif text.startswith('/remove'):
                 if chat_id not in Config.ADMIN_IDS:
-                    send_telegram_message(chat_id, "❌ <b>Unauthorized</b>\\nThis command is for admins only.")
+                    send_telegram_message(chat_id, "❌ <b>Unauthorized</b>\nThis command is for admins only.")
                     return jsonify({"ok": True}), 200
 
                 parts = text.split()
@@ -1148,7 +1136,7 @@ def webhook():
                         f"Status: Not in any waiting rooms.")
 
             elif text.startswith('/'):
-                send_telegram_message(chat_id, f"❓ Unknown: {text}\\nUse /help")
+                send_telegram_message(chat_id, f"❓ Unknown: {text}\nUse /help")
 
         return jsonify({"ok": True}), 200
     except Exception as e:
@@ -1693,7 +1681,7 @@ def approve_deposit(deposit_id):
                 user.total_deposited = Decimal(float(user.total_deposited)) + Decimal(float(deposit.amount))
                 transaction = Transaction(user_id=deposit.user_id, type='deposit', amount=deposit.amount, description=f'Deposit #{deposit.id} approved')
                 db.session.add(transaction)
-                send_telegram_message(deposit.user_id, f"✅ Deposit {float(deposit.amount):.0f} ETB approved!\\nBalance: {float(user.balance):.0f} ETB")
+                send_telegram_message(deposit.user_id, f"✅ Deposit {float(deposit.amount):.0f} ETB approved!\nBalance: {float(user.balance):.0f} ETB")
         else:
             deposit.status = 'rejected'
             deposit.approved_at = datetime.utcnow()
@@ -1744,7 +1732,7 @@ def approve_withdrawal(withdrawal_id):
                 user.total_withdrawn = Decimal(float(user.total_withdrawn)) + Decimal(float(withdrawal.amount))
                 transaction = Transaction(user_id=withdrawal.user_id, type='withdrawal', amount=withdrawal.amount, description=f'Withdrawal #{withdrawal.id} approved')
                 db.session.add(transaction)
-                send_telegram_message(withdrawal.user_id, f"✅ Withdrawal {float(withdrawal.amount):.0f} ETB processed!\\nSent to: {withdrawal.phone_number}")
+                send_telegram_message(withdrawal.user_id, f"✅ Withdrawal {float(withdrawal.amount):.0f} ETB processed!\nSent to: {withdrawal.phone_number}")
         else:
             withdrawal.status = 'rejected'
             withdrawal.approved_at = datetime.utcnow()
