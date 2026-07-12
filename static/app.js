@@ -6,6 +6,7 @@ let currentRoom = null;
 let selectedCartelaIds = [];
 let allCartelas = [];
 let gamePollInterval = null;
+let currentCartelaPage = 1;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -89,6 +90,7 @@ let createRoomData = { selectionMode: 'random', selectedIds: [] };
 
 function openCreateRoom() {
     selectedCartelaIds = [];
+    currentCartelaPage = 1;
     createRoomData = { selectionMode: 'random', selectedIds: [] };
     document.getElementById('selected-cartelas-display').textContent = '';
     document.getElementById('btn-random').style.background = '#667eea';
@@ -116,6 +118,7 @@ async function openCartelaPicker() {
     const maxCartelas = parseInt(document.getElementById('create-cartelas').value) || 1;
     document.getElementById('max-cartelas-allowed').textContent = maxCartelas;
     
+    currentCartelaPage = 1;
     if (allCartelas.length === 0) {
         await loadCartelasBatch(1);
     }
@@ -132,6 +135,7 @@ async function loadCartelasBatch(page) {
         return data;
     } catch (e) {
         showToast('Failed to load cartelas');
+        return { cartelas: [] };
     }
 }
 
@@ -155,8 +159,8 @@ function renderCartelaPicker() {
     }).join('');
     
     pagination.innerHTML = `
-        <button class="page-btn" onclick="changeCartelaPage(-1)" ${allCartelas.length < 50 ? 'disabled' : ''}>← Prev</button>
-        <button class="page-btn" onclick="changeCartelaPage(1)">Next →</button>
+        <button class="btn btn-secondary" style="flex:1;padding:10px;" onclick="changeCartelaPage(-1)" ${currentCartelaPage <= 1 ? 'disabled' : ''}>← Prev</button>
+        <button class="btn btn-secondary" style="flex:1;padding:10px;" onclick="changeCartelaPage(1)">Next →</button>
     `;
     
     document.getElementById('selected-count').textContent = `Selected: ${selectedCartelaIds.length}/${maxCartelas}`;
@@ -175,8 +179,11 @@ function toggleCartela(id, max) {
     renderCartelaPicker();
 }
 
-function changeCartelaPage(dir) {
-    showToast('Loading more cartelas...');
+async function changeCartelaPage(dir) {
+    currentCartelaPage += dir;
+    if (currentCartelaPage < 1) currentCartelaPage = 1;
+    await loadCartelasBatch(currentCartelaPage);
+    renderCartelaPicker();
 }
 
 function confirmCartelaSelection() {
@@ -234,6 +241,7 @@ async function createRoom() {
         showToast('Failed to create room');
     }
 }
+
 // Join Room
 async function joinRoom(roomId) {
     const cartelas = prompt('How many cartelas? (1-3)', '1');
@@ -286,7 +294,6 @@ async function joinByCode() {
 // Game
 function enterRoom(roomId) {
     currentRoom = roomId;
-    showTab('game');
     document.querySelectorAll('.tab')[1].click();
     document.getElementById('game-active').classList.remove('hidden');
     document.getElementById('game-inactive').classList.add('hidden');
@@ -462,6 +469,7 @@ async function requestWithdrawal() {
         showToast('Withdrawal request failed');
     }
 }
+
 // UI Helpers
 function openModal(id) { document.getElementById(id).classList.add('active'); }
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
