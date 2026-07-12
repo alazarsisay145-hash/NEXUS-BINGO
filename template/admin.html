@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NEXUS BINGO - Admin</title>
+    <title>NEXUS BINGO - Admin Panel</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -13,105 +13,180 @@
             color: #fff;
             min-height: 100vh;
         }
-        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+        .container { max-width: 900px; margin: 0 auto; padding: 16px; }
         .header {
+            text-align: center;
+            padding: 20px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 24px;
             border-radius: 16px;
-            margin-bottom: 24px;
+            margin-bottom: 16px;
         }
         .header h1 { font-size: 24px; font-weight: 800; }
-        .header p { opacity: 0.8; margin-top: 4px; }
-        
+        .header .subtitle { font-size: 14px; opacity: 0.8; margin-top: 4px; }
+
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-            margin-bottom: 24px;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 16px;
         }
         .stat-card {
             background: #1a1a2e;
             border-radius: 12px;
-            padding: 20px;
+            padding: 16px;
+            text-align: center;
             border: 1px solid #2a2a4e;
         }
-        .stat-card .label { font-size: 13px; color: #8892b0; margin-bottom: 8px; }
-        .stat-card .value { font-size: 28px; font-weight: 700; color: #38ef7d; }
-        .stat-card .sub { font-size: 12px; color: #667eea; margin-top: 4px; }
-        
+        .stat-value { font-size: 28px; font-weight: 800; color: #38ef7d; }
+        .stat-label { font-size: 12px; color: #8892b0; margin-top: 4px; }
+        .stat-value.pending { color: #f59e0b; }
+        .stat-value.alert { color: #ef4444; animation: blink 1s infinite; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
         .section {
             background: #1a1a2e;
             border-radius: 16px;
-            padding: 20px;
-            margin-bottom: 20px;
+            padding: 16px;
+            margin-bottom: 16px;
             border: 1px solid #2a2a4e;
         }
         .section-title {
             font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 16px;
-            color: #a78bfa;
+            font-weight: 700;
+            margin-bottom: 12px;
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            gap: 8px;
         }
-        
-        .btn {
-            padding: 10px 20px;
-            border: none;
+        .badge {
+            background: #ef4444;
+            color: white;
+            font-size: 12px;
+            padding: 2px 8px;
             border-radius: 10px;
+            min-width: 20px;
+            text-align: center;
+        }
+        .badge.green { background: #38ef7d; color: #000; }
+        .badge.orange { background: #f59e0b; }
+
+        .request-card {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 10px;
+            border-left: 4px solid #f59e0b;
+            animation: slideIn 0.3s ease;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        .request-card.deposit { border-left-color: #38ef7d; }
+        .request-card.withdrawal { border-left-color: #ef4444; }
+        .request-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .request-user {
+            font-weight: 600;
+            font-size: 15px;
+        }
+        .request-amount {
+            font-size: 20px;
+            font-weight: 800;
+        }
+        .request-amount.deposit { color: #38ef7d; }
+        .request-amount.withdrawal { color: #ef4444; }
+        .request-details {
+            font-size: 13px;
+            color: #8892b0;
+            margin-bottom: 10px;
+        }
+        .request-details div { margin-bottom: 2px; }
+        .request-actions {
+            display: flex;
+            gap: 8px;
+        }
+        .btn {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
             font-size: 14px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s;
+            transition: all 0.2s;
         }
-        .btn-primary { background: #667eea; color: white; }
-        .btn-success { background: #11998e; color: white; }
-        .btn-danger { background: #eb3349; color: white; }
-        .btn-secondary { background: #2a2a4e; color: #fff; }
-        .btn-sm { padding: 6px 12px; font-size: 12px; }
-        
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 14px;
+        .btn:active { transform: scale(0.97); }
+        .btn-approve {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
         }
-        th, td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #2a2a4e;
+        .btn-reject {
+            background: #2a2a4e;
+            color: #ef4444;
+            border: 1px solid #ef4444;
         }
-        th { color: #8892b0; font-weight: 500; font-size: 12px; text-transform: uppercase; }
-        tr:hover { background: #16213e; }
-        
-        .badge {
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 10px;
-            font-size: 11px;
-            font-weight: 600;
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #8892b0;
         }
-        .badge-pending { background: #f59e0b; color: #000; }
-        .badge-approved { background: #10b981; color: #fff; }
-        .badge-rejected { background: #ef4444; color: #fff; }
-        
-        .input {
-            padding: 10px 14px;
-            background: #16213e;
-            border: 1px solid #0f3460;
-            border-radius: 10px;
+        .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: #1a1a2e;
             color: #fff;
+            padding: 12px 24px;
+            border-radius: 12px;
             font-size: 14px;
-            margin-right: 8px;
+            z-index: 2000;
+            transition: transform 0.3s;
+            border: 1px solid #667eea;
+            max-width: 90%;
+            text-align: center;
         }
-        .input:focus { outline: none; border-color: #667eea; }
-        
-        .toggle-switch {
+        .toast.show { transform: translateX(-50%) translateY(0); }
+
+        .tabs {
             display: flex;
-            align-items: center;
-            gap: 12px;
+            gap: 8px;
             margin-bottom: 16px;
         }
+        .tab {
+            flex: 1;
+            padding: 12px;
+            background: #16213e;
+            border: none;
+            border-radius: 10px;
+            color: #8892b0;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .tab.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+        }
+
+        .settings-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #2a2a4e;
+        }
+        .settings-row:last-child { border-bottom: none; }
         .toggle {
             width: 50px;
             height: 26px;
@@ -121,219 +196,401 @@
             cursor: pointer;
             transition: background 0.3s;
         }
-        .toggle.active { background: #667eea; }
+        .toggle.active { background: #38ef7d; }
         .toggle::after {
             content: '';
             position: absolute;
-            width: 22px; height: 22px;
-            background: #fff;
+            width: 22px;
+            height: 22px;
+            background: white;
             border-radius: 50%;
-            top: 2px; left: 2px;
+            top: 2px;
+            left: 2px;
             transition: transform 0.3s;
         }
         .toggle.active::after { transform: translateX(24px); }
-        
-        .empty { text-align: center; padding: 40px; color: #8892b0; }
-        .loading { text-align: center; padding: 40px; }
-        .spinner {
-            width: 40px; height: 40px;
-            border: 3px solid #667eea;
-            border-top-color: transparent;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 16px;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        
-        .toast {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: #1a1a2e;
+
+        .input {
+            width: 80px;
+            padding: 8px;
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 8px;
             color: #fff;
-            padding: 14px 24px;
-            border-radius: 12px;
             font-size: 14px;
-            z-index: 2000;
-            border: 1px solid #667eea;
-            transform: translateY(100px);
-            transition: transform 0.3s;
+            text-align: center;
         }
-        .toast.show { transform: translateY(0); }
+
+        .auto-refresh {
+            text-align: center;
+            font-size: 12px;
+            color: #8892b0;
+            padding: 8px;
+        }
+        .auto-refresh span { color: #38ef7d; }
+
+        .sound-toggle {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            background: #1a1a2e;
+            border: 1px solid #2a2a4e;
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            cursor: pointer;
+            z-index: 100;
+        }
+
+        /* New request notification banner */
+        .new-request-banner {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(90deg, #ef4444, #f59e0b);
+            color: white;
+            text-align: center;
+            padding: 12px;
+            font-weight: 700;
+            font-size: 15px;
+            z-index: 3000;
+            transform: translateY(-100%);
+            transition: transform 0.3s;
+            cursor: pointer;
+        }
+        .new-request-banner.show { transform: translateY(0); }
     </style>
+<base target="_blank">
 </head>
 <body>
+    <div class="new-request-banner" id="new-request-banner" onclick="scrollToRequests()">
+        🔔 NEW REQUEST! Click to view
+    </div>
+
+    <div class="sound-toggle" id="sound-toggle" onclick="toggleSound()">🔔</div>
+
     <div class="container">
         <div class="header">
             <h1>🔧 NEXUS BINGO ADMIN</h1>
-            <p>Admin: Alazar | Telebirr: 0936719379</p>
+            <div class="subtitle">Manage deposits, withdrawals & settings</div>
         </div>
-        
+
         <!-- Stats -->
-        <div class="stats-grid" id="stats">
-            <div class="loading"><div class="spinner"></div></div>
-        </div>
-        
-        <!-- Settings -->
-        <div class="section">
-            <div class="section-title">⚙️ Settings</div>
-            <div class="toggle-switch">
-                <span>🤡 Rigged Mode (Bots Always Win)</span>
-                <div class="toggle" id="rigged-toggle" onclick="toggleRigged()"></div>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value pending" id="stat-pending-deposits">0</div>
+                <div class="stat-label">Pending Deposits</div>
             </div>
-            <div style="display: flex; align-items: center; gap: 12px;">
-                <span>House Cut %:</span>
-                <input type="number" class="input" id="house-cut" value="10" min="0" max="50" style="width: 80px;">
-                <button class="btn btn-primary btn-sm" onclick="updateHouseCut()">Save</button>
+            <div class="stat-card">
+                <div class="stat-value alert" id="stat-pending-withdrawals">0</div>
+                <div class="stat-label">Pending Withdrawals</div>
             </div>
-        </div>
-        
-        <!-- Pending Deposits -->
-        <div class="section">
-            <div class="section-title">
-                <span>💰 Pending Deposits</span>
-                <button class="btn btn-secondary btn-sm" onclick="loadDeposits()">🔄 Refresh</button>
+            <div class="stat-card">
+                <div class="stat-value" id="stat-total-users">0</div>
+                <div class="stat-label">Total Users</div>
             </div>
-            <div id="deposits-list">
-                <div class="loading"><div class="spinner"></div></div>
+            <div class="stat-card">
+                <div class="stat-value" id="stat-total-games">0</div>
+                <div class="stat-label">Total Games</div>
             </div>
         </div>
-        
-        <!-- Pending Withdrawals -->
-        <div class="section">
-            <div class="section-title">
-                <span>💸 Pending Withdrawals</span>
-                <button class="btn btn-secondary btn-sm" onclick="loadWithdrawals()">🔄 Refresh</button>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('requests')">📋 Requests</button>
+            <button class="tab" onclick="showTab('settings')">⚙️ Settings</button>
+            <button class="tab" onclick="showTab('players')">👥 Players</button>
+        </div>
+
+        <!-- Requests Tab -->
+        <div id="tab-requests">
+            <div class="auto-refresh">
+                Auto-refreshing every <span>5 seconds</span> 
+                <span id="refresh-countdown">(5)</span>
             </div>
-            <div id="withdrawals-list">
-                <div class="loading"><div class="spinner"></div></div>
+
+            <div class="section">
+                <div class="section-title">
+                    💰 Deposits <span class="badge" id="deposit-badge">0</span>
+                </div>
+                <div id="deposits-list">
+                    <div class="empty-state">
+                        <div class="icon">💸</div>
+                        <div>No pending deposits</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">
+                    💸 Withdrawals <span class="badge orange" id="withdrawal-badge">0</span>
+                </div>
+                <div id="withdrawals-list">
+                    <div class="empty-state">
+                        <div class="icon">💳</div>
+                        <div>No pending withdrawals</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="tab-settings" class="hidden">
+            <div class="section">
+                <div class="section-title">⚙️ Game Settings</div>
+                <div class="settings-row">
+                    <span>House Cut (%)</span>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <input type="number" class="input" id="house-cut-input" value="10" min="0" max="50">
+                        <button class="btn btn-approve" style="flex:none;padding:8px 16px;" onclick="saveHouseCut()">Save</button>
+                    </div>
+                </div>
+                <div class="settings-row">
+                    <span>Rigged Mode (Bots always win)</span>
+                    <div class="toggle" id="rigged-toggle" onclick="toggleRigged()"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Players Tab -->
+        <div id="tab-players" class="hidden">
+            <div class="section">
+                <div class="section-title">🔍 Find Player</div>
+                <input type="text" class="input" style="width:100%;text-align:left;margin-bottom:12px;" id="player-search" placeholder="Enter username or ID..." onkeyup="searchPlayer(event)">
+                <div id="player-results"></div>
             </div>
         </div>
     </div>
-    
+
     <div class="toast" id="toast"></div>
+
     <script>
         const API_BASE = '';
         let tg = window.Telegram?.WebApp;
-        
+        let soundEnabled = true;
+        let lastDepositCount = 0;
+        let lastWithdrawalCount = 0;
+        let refreshInterval = null;
+        let countdownInterval = null;
+        let countdown = 5;
+
+        // Auth headers
         function getAuthHeaders() {
-            if (tg?.initData) return { 'X-Telegram-Init-Data': tg.initData };
+            if (tg?.initData) {
+                return { 'X-Telegram-Init-Data': tg.initData };
+            }
             return {};
         }
-        
-        function showToast(msg) {
-            const toast = document.getElementById('toast');
-            toast.textContent = msg;
-            toast.classList.add('show');
-            setTimeout(() => toast.classList.remove('show'), 3000);
+
+        // Init
+        document.addEventListener('DOMContentLoaded', () => {
+            if (tg) {
+                tg.expand();
+                tg.ready();
+            }
+            loadAll();
+            startAutoRefresh();
+        });
+
+        // Sound notification
+        function playNotificationSound() {
+            if (!soundEnabled) return;
+            try {
+                const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE');
+                audio.play();
+            } catch(e) {}
+
+            // Also try speech
+            try {
+                const utterance = new SpeechSynthesisUtterance('New payment request!');
+                utterance.rate = 1.0;
+                utterance.pitch = 1.2;
+                speechSynthesis.speak(utterance);
+            } catch(e) {}
         }
-        
+
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            document.getElementById('sound-toggle').textContent = soundEnabled ? '🔔' : '🔕';
+            showToast(soundEnabled ? '🔔 Sound ON' : '🔕 Sound OFF');
+        }
+
+        // Auto refresh
+        function startAutoRefresh() {
+            refreshInterval = setInterval(loadAll, 5000);
+            countdownInterval = setInterval(() => {
+                countdown--;
+                if (countdown <= 0) countdown = 5;
+                document.getElementById('refresh-countdown').textContent = `(${countdown})`;
+            }, 1000);
+        }
+
+        // Tabs
+        function showTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            ['requests', 'settings', 'players'].forEach(t => {
+                document.getElementById(`tab-${t}`).classList.toggle('hidden', t !== tab);
+            });
+            if (tab === 'settings') loadSettings();
+        }
+
+        // Load everything
+        async function loadAll() {
+            await Promise.all([
+                loadStats(),
+                loadDeposits(),
+                loadWithdrawals()
+            ]);
+        }
+
+        // Stats
         async function loadStats() {
             try {
                 const res = await fetch(`${API_BASE}/api/admin/stats`, { headers: getAuthHeaders() });
                 const data = await res.json();
-                if (data.error) { showToast('Unauthorized'); return; }
-                
-                document.getElementById('stats').innerHTML = `
-                    <div class="stat-card">
-                        <div class="label">Total Users</div>
-                        <div class="value">${data.users.total}</div>
-                        <div class="sub">${data.users.bots} bots</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="label">Active Games</div>
-                        <div class="value">${data.games.active}</div>
-                        <div class="sub">${data.games.completed} completed</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="label">Pending Deposits</div>
-                        <div class="value">${data.financial.pending_deposits}</div>
-                        <div class="sub">${data.financial.pending_withdrawals} withdrawals</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="label">Total Deposited</div>
-                        <div class="value">${data.financial.total_deposits.toFixed(0)}</div>
-                        <div class="sub">${data.financial.total_withdrawals.toFixed(0)} withdrawn</div>
-                    </div>
-                `;
-                
-                if (data.settings.rigged_mode) {
-                    document.getElementById('rigged-toggle').classList.add('active');
+                if (data.error) return;
+
+                document.getElementById('stat-pending-deposits').textContent = data.financial.pending_deposits;
+                document.getElementById('stat-pending-withdrawals').textContent = data.financial.pending_withdrawals;
+                document.getElementById('stat-total-users').textContent = data.users.total;
+                document.getElementById('stat-total-games').textContent = data.games.total;
+
+                // Update badges
+                document.getElementById('deposit-badge').textContent = data.financial.pending_deposits;
+                document.getElementById('withdrawal-badge').textContent = data.financial.pending_withdrawals;
+
+                // Alert animation if new requests
+                const depositBadge = document.getElementById('deposit-badge');
+                const withdrawalBadge = document.getElementById('withdrawal-badge');
+
+                if (data.financial.pending_deposits > 0) {
+                    depositBadge.classList.add('alert');
+                } else {
+                    depositBadge.classList.remove('alert');
                 }
+
+                if (data.financial.pending_withdrawals > 0) {
+                    withdrawalBadge.classList.add('alert');
+                } else {
+                    withdrawalBadge.classList.remove('alert');
+                }
+
             } catch (e) {
-                showToast('Failed to load stats');
+                console.error('Stats error:', e);
             }
         }
-        
+
+        // Deposits
         async function loadDeposits() {
-            const list = document.getElementById('deposits-list');
-            list.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-            
             try {
                 const res = await fetch(`${API_BASE}/api/admin/deposits`, { headers: getAuthHeaders() });
                 const deposits = await res.json();
-                if (!Array.isArray(deposits) || deposits.length === 0) {
-                    list.innerHTML = '<div class="empty">No pending deposits</div>';
+
+                const container = document.getElementById('deposits-list');
+
+                if (!deposits || deposits.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="icon">💸</div>
+                            <div>No pending deposits</div>
+                        </div>
+                    `;
+                    lastDepositCount = 0;
                     return;
                 }
-                
-                list.innerHTML = `
-                    <table>
-                        <tr><th>ID</th><th>User</th><th>Amount</th><th>Date</th><th>Actions</th></tr>
-                        ${deposits.map(d => `
-                            <tr>
-                                <td>#${d.id}</td>
-                                <td>${d.first_name} (@${d.username || 'N/A'})</td>
-                                <td>${d.amount.toFixed(0)} ETB</td>
-                                <td>${new Date(d.created_at).toLocaleDateString()}</td>
-                                <td>
-                                    <button class="btn btn-success btn-sm" onclick="approveDeposit(${d.id}, true)">✅</button>
-                                    <button class="btn btn-danger btn-sm" onclick="approveDeposit(${d.id}, false)">❌</button>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </table>
-                `;
+
+                // Check for new deposits
+                if (deposits.length > lastDepositCount && lastDepositCount > 0) {
+                    playNotificationSound();
+                    showNewRequestBanner(`${deposits.length - lastDepositCount} new deposit request(s)!`);
+                }
+                lastDepositCount = deposits.length;
+
+                container.innerHTML = deposits.map(d => `
+                    <div class="request-card deposit" id="deposit-${d.id}">
+                        <div class="request-header">
+                            <span class="request-user">${d.first_name || 'Unknown'} (@${d.username || 'N/A'})</span>
+                            <span class="request-amount deposit">+${d.amount.toFixed(0)} ETB</span>
+                        </div>
+                        <div class="request-details">
+                            <div>👤 User ID: <code>${d.user_id}</code></div>
+                            <div>🆔 Deposit #${d.id}</div>
+                            <div>📅 ${new Date(d.created_at).toLocaleString()}</div>
+                        </div>
+                        <div class="request-actions">
+                            <button class="btn btn-approve" onclick="approveDeposit(${d.id}, true)">✅ Approve</button>
+                            <button class="btn btn-reject" onclick="approveDeposit(${d.id}, false)">❌ Reject</button>
+                        </div>
+                    </div>
+                `).join('');
+
             } catch (e) {
-                list.innerHTML = '<div class="empty">Failed to load</div>';
+                console.error('Deposits error:', e);
             }
         }
-        
+
+        // Withdrawals
         async function loadWithdrawals() {
-            const list = document.getElementById('withdrawals-list');
-            list.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-            
             try {
                 const res = await fetch(`${API_BASE}/api/admin/withdrawals`, { headers: getAuthHeaders() });
                 const withdrawals = await res.json();
-                if (!Array.isArray(withdrawals) || withdrawals.length === 0) {
-                    list.innerHTML = '<div class="empty">No pending withdrawals</div>';
+
+                const container = document.getElementById('withdrawals-list');
+
+                if (!withdrawals || withdrawals.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="icon">💳</div>
+                            <div>No pending withdrawals</div>
+                        </div>
+                    `;
+                    lastWithdrawalCount = 0;
                     return;
                 }
-                
-                list.innerHTML = `
-                    <table>
-                        <tr><th>ID</th><th>User</th><th>Amount</th><th>Phone</th><th>Actions</th></tr>
-                        ${withdrawals.map(w => `
-                            <tr>
-                                <td>#${w.id}</td>
-                                <td>${w.first_name} (@${w.username || 'N/A'})</td>
-                                <td>${w.amount.toFixed(0)} ETB</td>
-                                <td>${w.phone_number || 'N/A'}</td>
-                                <td>
-                                    <button class="btn btn-success btn-sm" onclick="approveWithdrawal(${w.id}, true)">✅</button>
-                                    <button class="btn btn-danger btn-sm" onclick="approveWithdrawal(${w.id}, false)">❌</button>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </table>
-                `;
+
+                // Check for new withdrawals
+                if (withdrawals.length > lastWithdrawalCount && lastWithdrawalCount > 0) {
+                    playNotificationSound();
+                    showNewRequestBanner(`${withdrawals.length - lastWithdrawalCount} new withdrawal request(s)!`);
+                }
+                lastWithdrawalCount = withdrawals.length;
+
+                container.innerHTML = withdrawals.map(w => `
+                    <div class="request-card withdrawal" id="withdrawal-${w.id}">
+                        <div class="request-header">
+                            <span class="request-user">${w.first_name || 'Unknown'} (@${w.username || 'N/A'})</span>
+                            <span class="request-amount withdrawal">-${w.amount.toFixed(0)} ETB</span>
+                        </div>
+                        <div class="request-details">
+                            <div>👤 User ID: <code>${w.user_id}</code></div>
+                            <div>📱 Phone: ${w.phone_number || 'N/A'}</div>
+                            <div>🆔 Withdrawal #${w.id}</div>
+                            <div>📅 ${new Date(w.created_at).toLocaleString()}</div>
+                        </div>
+                        <div class="request-actions">
+                            <button class="btn btn-approve" onclick="approveWithdrawal(${w.id}, true)">✅ Approve & Pay</button>
+                            <button class="btn btn-reject" onclick="approveWithdrawal(${w.id}, false)">❌ Reject & Refund</button>
+                        </div>
+                    </div>
+                `).join('');
+
             } catch (e) {
-                list.innerHTML = '<div class="empty">Failed to load</div>';
+                console.error('Withdrawals error:', e);
             }
         }
-        
+
+        // Approve/Reject Deposit
         async function approveDeposit(id, approved) {
+            const btn = event.target;
+            btn.disabled = true;
+            btn.textContent = approved ? 'Approving...' : 'Rejecting...';
+
             try {
                 const res = await fetch(`${API_BASE}/api/admin/deposits/${id}/approve`, {
                     method: 'POST',
@@ -341,17 +598,36 @@
                     body: JSON.stringify({ approved })
                 });
                 const data = await res.json();
+
                 if (data.success) {
-                    showToast(approved ? '✅ Deposit approved!' : '❌ Deposit rejected!');
-                    loadDeposits();
-                    loadStats();
+                    showToast(approved ? '✅ Deposit approved! Player balance updated.' : '❌ Deposit rejected.');
+                    // Remove card with animation
+                    const card = document.getElementById(`deposit-${id}`);
+                    if (card) {
+                        card.style.opacity = '0';
+                        card.style.transform = 'translateX(100px)';
+                        setTimeout(() => card.remove(), 300);
+                    }
+                    // Refresh after short delay
+                    setTimeout(loadAll, 500);
+                } else {
+                    showToast(data.error || 'Failed to process');
+                    btn.disabled = false;
+                    btn.textContent = approved ? '✅ Approve' : '❌ Reject';
                 }
             } catch (e) {
-                showToast('Action failed');
+                showToast('Network error. Try again.');
+                btn.disabled = false;
+                btn.textContent = approved ? '✅ Approve' : '❌ Reject';
             }
         }
-        
+
+        // Approve/Reject Withdrawal
         async function approveWithdrawal(id, approved) {
+            const btn = event.target;
+            btn.disabled = true;
+            btn.textContent = approved ? 'Processing...' : 'Rejecting...';
+
             try {
                 const res = await fetch(`${API_BASE}/api/admin/withdrawals/${id}/approve`, {
                     method: 'POST',
@@ -359,40 +635,53 @@
                     body: JSON.stringify({ approved })
                 });
                 const data = await res.json();
+
                 if (data.success) {
-                    showToast(approved ? '✅ Withdrawal approved!' : '❌ Withdrawal rejected!');
-                    loadWithdrawals();
-                    loadStats();
+                    showToast(approved ? '✅ Withdrawal approved! Send payment now.' : '❌ Withdrawal rejected. Balance refunded.');
+                    const card = document.getElementById(`withdrawal-${id}`);
+                    if (card) {
+                        card.style.opacity = '0';
+                        card.style.transform = 'translateX(100px)';
+                        setTimeout(() => card.remove(), 300);
+                    }
+                    setTimeout(loadAll, 500);
+                } else {
+                    showToast(data.error || 'Failed to process');
+                    btn.disabled = false;
+                    btn.textContent = approved ? '✅ Approve & Pay' : '❌ Reject & Refund';
                 }
             } catch (e) {
-                showToast('Action failed');
+                showToast('Network error. Try again.');
+                btn.disabled = false;
+                btn.textContent = approved ? '✅ Approve & Pay' : '❌ Reject & Refund';
             }
         }
-        
-        async function toggleRigged() {
-            const toggle = document.getElementById('rigged-toggle');
-            const enabled = !toggle.classList.contains('active');
-            
+
+        // Settings
+        async function loadSettings() {
             try {
-                const res = await fetch(`${API_BASE}/api/admin/settings`, {
-                    method: 'POST',
-                    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ rigged_mode: enabled })
-                });
+                const res = await fetch(`${API_BASE}/api/admin/settings`, { headers: getAuthHeaders() });
                 const data = await res.json();
-                if (data.success) {
-                    toggle.classList.toggle('active', enabled);
-                    showToast(enabled ? '🤡 Rigged mode ON!' : '✅ Fair mode ON!');
+                document.getElementById('house-cut-input').value = data.house_cut_percent;
+
+                const riggedToggle = document.getElementById('rigged-toggle');
+                if (data.rigged_mode) {
+                    riggedToggle.classList.add('active');
+                } else {
+                    riggedToggle.classList.remove('active');
                 }
             } catch (e) {
-                showToast('Failed to toggle');
+                console.error('Settings error:', e);
             }
         }
-        
-        async function updateHouseCut() {
-            const cut = parseFloat(document.getElementById('house-cut').value);
-            if (cut < 0 || cut > 50) { showToast('0-50% only'); return; }
-            
+
+        async function saveHouseCut() {
+            const cut = parseFloat(document.getElementById('house-cut-input').value);
+            if (cut < 0 || cut > 50) {
+                showToast('House cut must be 0-50%');
+                return;
+            }
+
             try {
                 const res = await fetch(`${API_BASE}/api/admin/settings`, {
                     method: 'POST',
@@ -400,18 +689,66 @@
                     body: JSON.stringify({ house_cut: cut })
                 });
                 const data = await res.json();
-                if (data.success) showToast('✅ House cut updated!');
+                if (data.success) {
+                    showToast(`✅ House cut set to ${cut}%`);
+                } else {
+                    showToast(data.error || 'Failed to save');
+                }
             } catch (e) {
-                showToast('Failed to update');
+                showToast('Network error');
             }
         }
-        
-        // Init
-        if (tg) { tg.expand(); tg.ready(); }
-        loadStats();
-        loadDeposits();
-        loadWithdrawals();
-        setInterval(() => { loadStats(); loadDeposits(); loadWithdrawals(); }, 30000);
+
+        async function toggleRigged() {
+            const toggle = document.getElementById('rigged-toggle');
+            const newState = !toggle.classList.contains('active');
+
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/settings`, {
+                    method: 'POST',
+                    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ rigged_mode: newState })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    toggle.classList.toggle('active');
+                    showToast(newState ? '⚠️ Rigged mode ON - Bots will win!' : '✅ Rigged mode OFF');
+                }
+            } catch (e) {
+                showToast('Network error');
+            }
+        }
+
+        // Player search
+        async function searchPlayer(e) {
+            if (e.key !== 'Enter') return;
+            const query = document.getElementById('player-search').value.trim();
+            if (!query) return;
+
+            // This would need a search endpoint - simplified for now
+            showToast('Player search: Use /remove command in bot for now');
+        }
+
+        // New request banner
+        function showNewRequestBanner(text) {
+            const banner = document.getElementById('new-request-banner');
+            banner.textContent = `🔔 ${text}`;
+            banner.classList.add('show');
+            setTimeout(() => banner.classList.remove('show'), 5000);
+        }
+
+        function scrollToRequests() {
+            document.getElementById('tab-requests').scrollIntoView({ behavior: 'smooth' });
+            document.getElementById('new-request-banner').classList.remove('show');
+        }
+
+        // Toast
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 4000);
+        }
     </script>
 </body>
 </html>
