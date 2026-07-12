@@ -1,4 +1,7 @@
-// NEXUS BINGO - Frontend JavaScript
+
+merged_js = '''// NEXUS BINGO - Frontend JavaScript
+// Features: Voice calling, BINGO button, fast gameplay, straight line patterns
+
 const API_BASE = '';
 let tg = window.Telegram?.WebApp;
 let currentUser = null;
@@ -7,6 +10,11 @@ let selectedCartelaIds = [];
 let allCartelas = [];
 let gamePollInterval = null;
 let currentCartelaPage = 1;
+
+// NEW: Voice calling state
+let voiceEnabled = true;
+let lastCall = null;
+let hasShownBingo = false;
 
 // Stake levels available
 const STAKE_LEVELS = [10, 25, 50, 100, 250, 500];
@@ -20,7 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     initAuth();
     loadProfile();
-    showStakeSelector(); // Show stake picker instead of room list
+    showStakeSelector();
 });
 
 // Auth
@@ -56,7 +64,36 @@ function showTab(tab) {
 }
 
 // ============================================================
-// STAKE SELECTOR (Replaces room list)
+// VOICE CALLING (NEW)
+// ============================================================
+function speakNumber(call) {
+    if (!voiceEnabled || !call) return;
+    
+    // Extract letter and number: "B12" → "B 12"
+    const letter = call.charAt(0);
+    const number = call.slice(1);
+    
+    // Cancel any ongoing speech
+    speechSynthesis.cancel();
+    
+    const utterance = new SpeechSynthesisUtterance(`${letter} ${number}`);
+    utterance.rate = 0.85;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+    utterance.lang = 'en-US';
+    
+    speechSynthesis.speak(utterance);
+}
+
+function toggleVoice() {
+    voiceEnabled = !voiceEnabled;
+    showToast(voiceEnabled ? '🔊 Voice ON' : '🔇 Voice OFF');
+    const btn = document.getElementById('voice-btn');
+    if (btn) btn.textContent = voiceEnabled ? '🔊 ON' : '🔇 OFF';
+}
+
+// ============================================================
+// STAKE SELECTOR
 // ============================================================
 
 function showStakeSelector() {
@@ -66,8 +103,8 @@ function showStakeSelector() {
         <div class="section">
             <div class="section-title">🎯 Choose Your Stake</div>
             <div style="font-size: 13px; color: #8892b0; margin-bottom: 16px; text-align: center;">
-                Pick a stake level. We'll find or create a room for you instantly!<br>
-                <span style="color: #38ef7d;">⏱️ 1 min timer — bots fill empty slots</span>
+                Pick a stake level. Game starts instantly with bots!<br>
+                <span style="color: #38ef7d;">⚡ No waiting — play now!</span>
             </div>
             <div class="stake-grid">
                 ${STAKE_LEVELS.map(stake => `
@@ -79,9 +116,14 @@ function showStakeSelector() {
                 `).join('')}
             </div>
         </div>
+        
+        <div class="section">
+            <div class="section-title">⚙️ Options</div>
+            <button class="btn btn-secondary" onclick="openCreateRoom()">🏠 Create Private Room</button>
+            <button class="btn btn-secondary" onclick="openJoinByCode()">🔑 Join by Code</button>
+        </div>
     `;
     
-    // Load player counts for each stake
     loadStakeCounts();
 }
 
@@ -115,7 +157,7 @@ async function joinRoomByStake(stake) {
         return;
     }
     
-    showToast(`🎮 Finding ${stake} ETB room...`);
+    showToast(`🎮 Joining ${stake} ETB room...`);
     
     try {
         const res = await fetch(`${API_BASE}/api/rooms/join-by-stake`, {
@@ -139,11 +181,14 @@ async function joinRoomByStake(stake) {
 }
 
 // ============================================================
-// GAME (Same as before, with polling)
+// GAME
 // ============================================================
 
 function enterRoom(roomId) {
     currentRoom = roomId;
+    hasShownBingo = false;
+    lastCall = null;
+    
     document.querySelectorAll('.tab')[1].click();
     document.getElementById('game-active').classList.remove('hidden');
     document.getElementById('game-inactive').classList.add('hidden');
@@ -167,6 +212,9 @@ function leaveRoom() {
         gamePollInterval = null;
     }
     currentRoom = null;
+    hasShownBingo = false;
+    lastCall = null;
+    hideBingoButton();
     document.getElementById('game-active').classList.add('hidden');
     document.getElementById('game-inactive').classList.remove('hidden');
     showStakeSelector();
@@ -184,7 +232,7 @@ async function loadRoomState(roomId) {
             return;
         }
         
-        // Update current call with animation
+        // Update current call with VOICE
         const currentCallEl = document.getElementById('current-call');
         const newCall = state.current_call;
         const oldCall = currentCallEl.dataset.lastCall;
@@ -194,6 +242,11 @@ async function loadRoomState(roomId) {
             currentCallEl.dataset.lastCall = newCall;
             currentCallEl.classList.add('new-call');
             setTimeout(() => currentCallEl.classList.remove('new-call'), 1000);
+            
+            // NEW: Speak the number!
+            speakNumber(newCall);
+            
+            lastCall = newCall;
         } else if (!newCall) {
             currentCallEl.textContent = '--';
             currentCallEl.dataset.lastCall = '';
@@ -204,20 +257,7 @@ async function loadRoomState(roomId) {
         statusEl.textContent = state.status;
         statusEl.className = `status status-${state.status}`;
         
-        // Show countdown timer if waiting
-        if (state.status === 'waiting' && state.time_remaining !== undefined) {
-            const timerEl = document.getElementById('game-timer');
-            if (timerEl) {
-                const seconds = Math.ceil(state.time_remaining / 1000);
-                timerEl.textContent = `⏱️ ${seconds}s until bots join`;
-                timerEl.classList.remove('hidden');
-            }
-        } else {
-            const timerEl = document.getElementById('game-timer');
-            if (timerEl) timerEl.classList.add('hidden');
-        }
-        
-        // Update called numbers grid (sorted)
+        // Update called numbers grid
         const calledDiv = document.getElementById('called-numbers');
         const calledNumbers = state.called_numbers || [];
         const sortedCalled = [...calledNumbers].sort((a, b) => a - b);
@@ -226,7 +266,7 @@ async function loadRoomState(roomId) {
             `<span class="called-number">${n}</span>`
         ).join('');
         
-        // Update cartelas
+        // Update cartelas (with BINGO detection)
         renderMyCartelas(state.my_cartelas, state.my_marked, calledNumbers);
         
         // Update room info
@@ -237,6 +277,11 @@ async function loadRoomState(roomId) {
         if (state.players !== undefined) {
             const playersEl = document.getElementById('game-players');
             if (playersEl) playersEl.textContent = `👥 ${state.players}/${state.max_players || 20}`;
+        }
+        
+        // Check for bingo claimed (hide button)
+        if (state.bingo_claimed) {
+            hideBingoButton();
         }
         
         // Game over handling
@@ -272,42 +317,69 @@ function renderMyCartelas(cartelas, marked, calledNumbers) {
     }
     
     const calledSet = new Set(calledNumbers || []);
+    let anyHasBingo = false;
     
-    container.innerHTML = cartelas.map((cartela, cidx) => `
-        <div class="cartela-wrapper" data-cartela="${cidx}">
-            <div class="cartela-header">
-                <span>Cartela #${cidx + 1}</span>
-                <span class="cartela-progress">${countMarked(marked, cidx)}/25</span>
+    container.innerHTML = cartelas.map((cartela, cidx) => {
+        const cartelaMarked = (marked && marked[cidx]) || [];
+        const hasBingo = checkStraightLine(cartelaMarked);
+        if (hasBingo) anyHasBingo = true;
+        
+        return `
+            <div class="cartela-wrapper" data-cartela="${cidx}">
+                <div class="cartela-header">
+                    <span>Cartela #${cidx + 1}</span>
+                    <span class="cartela-progress">${cartelaMarked.length}/25</span>
+                </div>
+                <div class="cartela-grid">
+                    ${cartela.map((num, idx) => {
+                        const isMarked = cartelaMarked.includes(idx);
+                        const isCalled = calledSet.has(num) && num !== 0;
+                        const isFree = num === 0;
+                        
+                        let classes = ['cartela-cell'];
+                        if (isFree) classes.push('free');
+                        if (isMarked) classes.push('marked');
+                        if (isCalled && !isFree && !isMarked) classes.push('called');
+                        
+                        return `
+                            <div class="${classes.join(' ')}"
+                                 data-number="${num}"
+                                 data-cartela="${cidx}"
+                                 data-index="${idx}"
+                                 onclick="handleCellClick(this, '${currentRoom}', ${cidx}, ${idx}, ${num})">
+                                ${isFree ? '★' : num}
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
             </div>
-            <div class="cartela-grid">
-                ${cartela.map((num, idx) => {
-                    const isMarked = marked && marked[cidx] && marked[cidx].includes(idx);
-                    const isCalled = calledSet.has(num) && num !== 0;
-                    const isFree = num === 0;
-                    
-                    let classes = ['cartela-cell'];
-                    if (isFree) classes.push('free');
-                    if (isMarked) classes.push('marked');
-                    if (isCalled && !isFree && !isMarked) classes.push('called');
-                    
-                    return `
-                        <div class="${classes.join(' ')}"
-                             data-number="${num}"
-                             data-cartela="${cidx}"
-                             data-index="${idx}"
-                             onclick="handleCellClick(this, '${currentRoom}', ${cidx}, ${idx}, ${num})">
-                            ${isFree ? '★' : num}
-                        </div>
-                    `;
-                }).join('')}
-            </div>
-        </div>
-    `).join('');
+        `;
+    }).join('');
+    
+    // NEW: Show BINGO button if any cartela has a straight line
+    if (anyHasBingo && !hasShownBingo && !gameState?.bingo_claimed) {
+        showBingoButton();
+    }
 }
 
-function countMarked(marked, cidx) {
-    if (!marked || !marked[cidx]) return 0;
-    return marked[cidx].length;
+// NEW: Check straight line patterns (row, column, diagonal)
+function checkStraightLine(marked) {
+    if (!marked || marked.length < 5) return false;
+    const m = new Set(marked);
+    
+    // Rows
+    for (let row = 0; row < 5; row++) {
+        if ([0,1,2,3,4].every(col => m.has(row * 5 + col))) return true;
+    }
+    // Columns
+    for (let col = 0; col < 5; col++) {
+        if ([0,1,2,3,4].every(row => m.has(row * 5 + col))) return true;
+    }
+    // Diagonals
+    if ([0,6,12,18,24].every(i => m.has(i))) return true;
+    if ([4,8,12,16,20].every(i => m.has(i))) return true;
+    
+    return false;
 }
 
 function handleCellClick(cell, roomId, cartelaIdx, numberIdx, number) {
@@ -320,7 +392,7 @@ function handleCellClick(cell, roomId, cartelaIdx, numberIdx, number) {
     if (number === 0) return;
     
     if (!cell.classList.contains('called') && !cell.classList.contains('marked')) {
-        showToast('That number hasn\'t been called yet!');
+        showToast("That number hasn't been called yet!");
         return;
     }
     
@@ -341,11 +413,12 @@ async function markNumber(roomId, cartelaIdx, numberIdx) {
             return;
         }
         
-        if (data.winner) {
-            showToast('🎉 BINGO! YOU WON!');
-            confetti();
-            loadRoomState(roomId);
-        } else if (data.marked) {
+        // NEW: Check if server says we have bingo
+        if (data.has_bingo && !hasShownBingo) {
+            showBingoButton();
+        }
+        
+        if (data.marked) {
             const cell = document.querySelector(`[data-cartela="${cartelaIdx}"][data-index="${numberIdx}"]`);
             if (cell) {
                 cell.classList.add('marked');
@@ -362,7 +435,145 @@ async function markNumber(roomId, cartelaIdx, numberIdx) {
     }
 }
 
-// Profile
+// ============================================================
+// BINGO BUTTON (NEW)
+// ============================================================
+function showBingoButton() {
+    if (hasShownBingo) return;
+    hasShownBingo = true;
+    
+    let btn = document.getElementById('bingo-btn');
+    if (!btn) {
+        btn = document.createElement('button');
+        btn.id = 'bingo-btn';
+        btn.innerHTML = '🎉 BINGO! 🎉';
+        btn.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, #ff0000 0%, #ff4444 100%);
+            color: white;
+            font-size: 28px;
+            font-weight: 800;
+            padding: 20px 60px;
+            border-radius: 50px;
+            border: none;
+            z-index: 1000;
+            box-shadow: 0 0 30px rgba(255,0,0,0.6), 0 4px 20px rgba(0,0,0,0.3);
+            cursor: pointer;
+            animation: bingoPulse 0.6s infinite alternate;
+            letter-spacing: 4px;
+        `;
+        btn.onclick = claimBingo;
+        document.body.appendChild(btn);
+        
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes bingoPulse {
+                from { transform: translateX(-50%) scale(1); box-shadow: 0 0 30px rgba(255,0,0,0.6); }
+                to { transform: translateX(-50%) scale(1.15); box-shadow: 0 0 50px rgba(255,0,0,0.9); }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    btn.style.display = 'block';
+    
+    // Speak alert
+    const bingoAlert = new SpeechSynthesisUtterance('Bingo! Click the button now!');
+    bingoAlert.rate = 0.9;
+    bingoAlert.pitch = 1.2;
+    speechSynthesis.speak(bingoAlert);
+}
+
+function hideBingoButton() {
+    const btn = document.getElementById('bingo-btn');
+    if (btn) btn.style.display = 'none';
+}
+
+async function claimBingo() {
+    try {
+        const res = await fetch(`${API_BASE}/api/rooms/${currentRoom}/bingo`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        
+        const data = await res.json();
+        if (data.success) {
+            hideBingoButton();
+            showToast('🎉 BINGO! YOU WON!', 5000);
+            
+            // Victory speech
+            const victory = new SpeechSynthesisUtterance('Congratulations! You won!');
+            victory.rate = 0.8;
+            victory.pitch = 1.3;
+            speechSynthesis.speak(victory);
+            
+            confetti();
+            clearInterval(gamePollInterval);
+            setTimeout(() => location.reload(), 4000);
+        } else {
+            showToast(data.error || 'No bingo! Keep playing!');
+            hideBingoButton();
+            hasShownBingo = false;
+        }
+    } catch (e) {
+        showToast('Failed to claim bingo');
+    }
+}
+
+// ============================================================
+// PRIVATE ROOMS
+// ============================================================
+function openCreateRoom() {
+    const stake = parseInt(prompt('Stake per cartela (ETB):', '10'));
+    if (!stake || stake < 1) return;
+    
+    const cartelas = parseInt(prompt('Cartelas (1-3):', '1'));
+    if (!cartelas || cartelas < 1 || cartelas > 3) return;
+    
+    const isPrivate = confirm('Make this room private?');
+    
+    fetch(`${API_BASE}/api/rooms`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stake, cartelas, is_private: isPrivate })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) { showToast(data.error); return; }
+        if (isPrivate) {
+            showToast(`Room created! Code: ${data.room.invite_code}`);
+            alert(`Share this code: ${data.room.invite_code}`);
+        }
+        enterRoom(data.room.id);
+    })
+    .catch(() => showToast('Failed to create room'));
+}
+
+function openJoinByCode() {
+    const code = prompt('Enter invite code:');
+    if (!code) return;
+    
+    const cartelas = parseInt(prompt('Cartelas (1-3):', '1')) || 1;
+    
+    fetch(`${API_BASE}/api/rooms/join-by-code`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invite_code: code, cartelas })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) { showToast(data.error); return; }
+        enterRoom(data.room_id);
+    })
+    .catch(() => showToast('Failed to join room'));
+}
+
+// ============================================================
+// PROFILE
+// ============================================================
 async function loadProfile() {
     try {
         const res = await fetch(`${API_BASE}/api/user/profile`, { headers: getAuthHeaders() });
@@ -407,7 +618,9 @@ async function loadTransactions() {
     }
 }
 
-// Deposit / Withdraw
+// ============================================================
+// DEPOSIT / WITHDRAW
+// ============================================================
 function openDeposit() { openModal('modal-deposit'); }
 function openWithdraw() { openModal('modal-withdraw'); }
 
@@ -455,7 +668,9 @@ async function requestWithdrawal() {
     }
 }
 
-// UI Helpers
+// ============================================================
+// UI HELPERS
+// ============================================================
 function openModal(id) { document.getElementById(id).classList.add('active'); }
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
@@ -490,3 +705,10 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
         if (e.target === overlay) overlay.classList.remove('active');
     });
 });
+'''
+
+with open('/mnt/agents/output/app.js', 'w') as f:
+    f.write(merged_js)
+
+print("Merged app.js written successfully!")
+print(f"File size: {len(merged_js)} characters")
