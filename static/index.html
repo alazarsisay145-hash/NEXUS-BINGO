@@ -1,507 +1,641 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>NEXUS BINGO - Play</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #0f0f23;
-            color: #fff;
-            min-height: 100vh;
-            overflow-x: hidden;
+// NEXUS BINGO - Frontend JavaScript
+const API_BASE = '';
+let tg = window.Telegram?.WebApp;
+let currentUser = null;
+let currentRoom = null;
+let selectedCartelaIds = [];
+let allCartelas = [];
+let gamePollInterval = null;
+let currentCartelaPage = 1;
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    if (tg) {
+        tg.expand();
+        tg.ready();
+        tg.setHeaderColor('#0f0f23');
+    }
+    initAuth();
+    loadRooms();
+    loadProfile();
+});
+
+// Auth
+function getAuthHeaders() {
+    if (tg?.initData) {
+        return { 'X-Telegram-Init-Data': tg.initData };
+    }
+    return {};
+}
+
+async function initAuth() {
+    try {
+        const res = await fetch(`${API_BASE}/webapp`, { headers: getAuthHeaders() });
+        const data = await res.json();
+        if (data.user) {
+            currentUser = data.user;
+            document.getElementById('balance').textContent = `💰 ${data.user.balance.toFixed(0)} ETB`;
         }
-        .container { max-width: 480px; margin: 0 auto; padding: 16px; }
-        .header {
-            text-align: center;
-            padding: 20px 0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 16px;
-            margin-bottom: 16px;
-        }
-        .header h1 { font-size: 28px; font-weight: 800; letter-spacing: 2px; }
-        .header .balance {
-            font-size: 18px;
-            margin-top: 8px;
-            background: rgba(255,255,255,0.2);
-            padding: 8px 16px;
-            border-radius: 20px;
-            display: inline-block;
-        }
-        .section {
-            background: #1a1a2e;
-            border-radius: 16px;
-            padding: 16px;
-            margin-bottom: 16px;
-            border: 1px solid #2a2a4e;
-        }
-        .section-title {
-            font-size: 16px;
-            font-weight: 600;
-            margin-bottom: 12px;
-            color: #a78bfa;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .btn {
-            width: 100%;
-            padding: 14px;
-            border: none;
-            border-radius: 12px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-            margin-bottom: 8px;
-        }
-        .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
-        .btn-success {
-            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-            color: white;
-        }
-        .btn-danger {
-            background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
-            color: white;
-        }
-        .btn-secondary {
-            background: #2a2a4e;
-            color: #fff;
-        }
-        .btn-half {
-            width: calc(50% - 4px);
-            display: inline-block;
-        }
-        .btn-half:nth-child(even) { margin-left: 8px; }
-        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .btn:active { transform: scale(0.98); }
+    } catch (e) {
+        showToast('Auth failed. Open via Telegram.');
+    }
+}
+
+// Tabs
+function showTab(tab) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    event.target.classList.add('active');
+    ['rooms', 'game', 'profile'].forEach(t => {
+        document.getElementById(`tab-${t}`).classList.toggle('hidden', t !== tab);
+    });
+    if (tab === 'rooms') loadRooms();
+    if (tab === 'profile') loadProfile();
+}
+
+// Rooms
+async function loadRooms() {
+    const list = document.getElementById('rooms-list');
+    list.innerHTML = '<div class="loading"><div class="spinner"></div><div>Loading rooms...</div></div>';
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/rooms`, { headers: getAuthHeaders() });
+        const rooms = await res.json();
         
-        .room-card {
-            background: #16213e;
-            border-radius: 12px;
-            padding: 12px;
-            margin-bottom: 8px;
-            border: 1px solid #0f3460;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        .room-card:hover { border-color: #667eea; }
-        .room-card .room-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
-        }
-        .room-card .stake {
-            font-size: 20px;
-            font-weight: 700;
-            color: #38ef7d;
-        }
-        .room-card .players {
-            font-size: 13px;
-            color: #8892b0;
-        }
-        .room-card .status {
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 10px;
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-        .status-waiting { background: #f59e0b; color: #000; }
-        .status-calling { background: #ef4444; color: #fff; }
-        .status-completed { background: #10b981; color: #fff; }
-        .badge-private {
-            background: #8b5cf6;
-            color: #fff;
-            padding: 2px 8px;
-            border-radius: 6px;
-            font-size: 10px;
-            margin-left: 6px;
+        if (!Array.isArray(rooms) || rooms.length === 0) {
+            list.innerHTML = '<div class="empty-state"><div class="icon">🏠</div><div>No active rooms. Create one!</div></div>';
+            return;
         }
         
-        .cartela-grid {
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 4px;
-            max-width: 280px;
-            margin: 0 auto;
+        list.innerHTML = rooms.map(r => `
+            <div class="room-card" onclick="joinRoom('${r.id}')">
+                <div class="room-header">
+                    <div>
+                        <span class="stake">${r.stake.toFixed(0)} ETB</span>
+                        ${r.is_private ? '<span class="badge-private">🔒 PRIVATE</span>' : ''}
+                        ${r.is_automated ? '<span class="badge-private" style="background:#ef4444;">🤖 BOTS</span>' : ''}
+                    </div>
+                    <span class="status status-${r.status}">${r.status}</span>
+                </div>
+                <div class="players">👥 ${r.players}/${r.max_players} players • 💰 ${r.pot.toFixed(0)} ETB pot</div>
+                ${r.invite_code ? `<div style="font-size:12px;color:#a78bfa;margin-top:4px;">🔑 Code: ${r.invite_code}</div>` : ''}
+            </div>
+        `).join('');
+    } catch (e) {
+        list.innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><div>Failed to load rooms</div></div>';
+    }
+}
+
+// Create Room
+let createRoomData = { selectionMode: 'random', selectedIds: [] };
+
+function openCreateRoom() {
+    selectedCartelaIds = [];
+    currentCartelaPage = 1;
+    createRoomData = { selectionMode: 'random', selectedIds: [] };
+    document.getElementById('selected-cartelas-display').textContent = '';
+    document.getElementById('btn-random').style.background = '#667eea';
+    document.getElementById('btn-manual').style.background = '#2a2a4e';
+    openModal('modal-create');
+}
+
+function toggleCartelaSelection(mode) {
+    createRoomData.selectionMode = mode;
+    const btnRandom = document.getElementById('btn-random');
+    const btnManual = document.getElementById('btn-manual');
+    
+    if (mode === 'random') {
+        btnRandom.style.background = '#667eea';
+        btnManual.style.background = '#2a2a4e';
+        selectedCartelaIds = [];
+        document.getElementById('selected-cartelas-display').textContent = '🎲 Random selection';
+    } else {
+        btnRandom.style.background = '#2a2a4e';
+        btnManual.style.background = '#667eea';
+    }
+}
+
+async function openCartelaPicker() {
+    const maxCartelas = parseInt(document.getElementById('create-cartelas').value) || 1;
+    document.getElementById('max-cartelas-allowed').textContent = maxCartelas;
+    
+    currentCartelaPage = 1;
+    if (allCartelas.length === 0) {
+        await loadCartelasBatch(1);
+    }
+    renderCartelaPicker();
+    openModal('modal-cartelas');
+}
+
+async function loadCartelasBatch(page) {
+    try {
+        const res = await fetch(`${API_BASE}/api/cartelas/preview/batch?page=${page}&per_page=50`, { headers: getAuthHeaders() });
+        const data = await res.json();
+        if (page === 1) allCartelas = [];
+        allCartelas = allCartelas.concat(data.cartelas);
+        return data;
+    } catch (e) {
+        showToast('Failed to load cartelas');
+        return { cartelas: [] };
+    }
+}
+
+function renderCartelaPicker() {
+    const selector = document.getElementById('cartela-selector');
+    const pagination = document.getElementById('cartela-pagination');
+    const maxCartelas = parseInt(document.getElementById('create-cartelas').value) || 1;
+    
+    selector.innerHTML = allCartelas.map(c => {
+        const isSelected = selectedCartelaIds.includes(c.id);
+        return `
+            <div class="cartela-option ${isSelected ? 'selected' : ''}" onclick="toggleCartela(${c.id}, ${maxCartelas})">
+                <div class="cartela-id">#${c.id}</div>
+                <div class="cartela-preview">
+                    ${c.numbers.map((n, i) => `
+                        <div class="cartela-preview-cell ${n === 0 ? 'free' : ''}">${n || '★'}</div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }).join('');
+    
+    pagination.innerHTML = `
+        <button class="btn btn-secondary" style="flex:1;padding:10px;" onclick="changeCartelaPage(-1)" ${currentCartelaPage <= 1 ? 'disabled' : ''}>← Prev</button>
+        <button class="btn btn-secondary" style="flex:1;padding:10px;" onclick="changeCartelaPage(1)">Next →</button>
+    `;
+    
+    document.getElementById('selected-count').textContent = `Selected: ${selectedCartelaIds.length}/${maxCartelas}`;
+}
+
+function toggleCartela(id, max) {
+    const idx = selectedCartelaIds.indexOf(id);
+    if (idx > -1) {
+        selectedCartelaIds.splice(idx, 1);
+    } else if (selectedCartelaIds.length < max) {
+        selectedCartelaIds.push(id);
+    } else {
+        showToast(`Max ${max} cartelas allowed!`);
+        return;
+    }
+    renderCartelaPicker();
+}
+
+async function changeCartelaPage(dir) {
+    currentCartelaPage += dir;
+    if (currentCartelaPage < 1) currentCartelaPage = 1;
+    await loadCartelasBatch(currentCartelaPage);
+    renderCartelaPicker();
+}
+
+function confirmCartelaSelection() {
+    const maxCartelas = parseInt(document.getElementById('create-cartelas').value) || 1;
+    if (selectedCartelaIds.length === 0) {
+        showToast('Please select at least one cartela');
+        return;
+    }
+    if (selectedCartelaIds.length > maxCartelas) {
+        showToast(`Max ${maxCartelas} cartelas allowed!`);
+        return;
+    }
+    createRoomData.selectedIds = [...selectedCartelaIds];
+    document.getElementById('selected-cartelas-display').textContent = `🎯 Selected: #${selectedCartelaIds.join(', #')}`;
+    closeModal('modal-cartelas');
+}
+
+async function createRoom() {
+    const stake = parseFloat(document.getElementById('create-stake').value);
+    const maxPlayers = parseInt(document.getElementById('create-max-players').value);
+    const cartelas = parseInt(document.getElementById('create-cartelas').value);
+    const isPrivate = document.getElementById('create-private').checked;
+    
+    if (!stake || stake < 1) { showToast('Invalid stake'); return; }
+    if (maxPlayers < 1 || maxPlayers > 1000) { showToast('Players must be 1-1000'); return; }
+    if (cartelas < 1 || cartelas > 3) { showToast('Cartelas must be 1-3'); return; }
+    
+    const body = {
+        stake,
+        max_players: maxPlayers,
+        cartelas,
+        is_private: isPrivate,
+        cartela_selection: createRoomData.selectionMode,
+        selected_cartela_ids: createRoomData.selectedIds
+    };
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/rooms`, {
+            method: 'POST',
+            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (data.error) { showToast(data.error); return; }
+        
+        showToast(`✅ Room created! ID: ${data.room.id}`);
+        if (data.room.invite_code) {
+            showToast(`🔑 Invite code: ${data.room.invite_code}`);
         }
-        .cartela-cell {
-            aspect-ratio: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #16213e;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            border: 2px solid transparent;
+        closeModal('modal-create');
+        enterRoom(data.room.id);
+    } catch (e) {
+        showToast('Failed to create room');
+    }
+}
+
+// Join Room
+async function joinRoom(roomId) {
+    const cartelas = prompt('How many cartelas? (1-3)', '1');
+    if (!cartelas) return;
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/rooms/${roomId}/join`, {
+            method: 'POST',
+            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cartelas: parseInt(cartelas) })
+        });
+        const data = await res.json();
+        if (data.error) { showToast(data.error); return; }
+        
+        showToast('✅ Joined room!');
+        enterRoom(roomId);
+    } catch (e) {
+        showToast('Failed to join room');
+    }
+}
+
+// Join by Code
+function openJoinByCode() {
+    openModal('modal-join-code');
+}
+
+async function joinByCode() {
+    const code = document.getElementById('join-code').value.trim().toUpperCase();
+    const cartelas = parseInt(document.getElementById('join-code-cartelas').value) || 1;
+    
+    if (!code) { showToast('Enter invite code'); return; }
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/rooms/join-by-code`, {
+            method: 'POST',
+            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ invite_code: code, cartelas })
+        });
+        const data = await res.json();
+        if (data.error) { showToast(data.error); return; }
+        
+        showToast('✅ Joined private room!');
+        closeModal('modal-join-code');
+        enterRoom(data.room_id);
+    } catch (e) {
+        showToast('Invalid invite code');
+    }
+}
+
+// ============================================================
+// GAME - Updated with better polling and UI
+// ============================================================
+
+function enterRoom(roomId) {
+    currentRoom = roomId;
+    document.querySelectorAll('.tab')[1].click();
+    document.getElementById('game-active').classList.remove('hidden');
+    document.getElementById('game-inactive').classList.add('hidden');
+    
+    // Clear any existing interval first
+    if (gamePollInterval) {
+        clearInterval(gamePollInterval);
+        gamePollInterval = null;
+    }
+    
+    // Load immediately, then start polling every 2 seconds
+    loadRoomState(roomId);
+    gamePollInterval = setInterval(() => {
+        if (currentRoom) {
+            loadRoomState(currentRoom);
         }
-        .cartela-cell:hover { background: #1e3a5f; }
-        .cartela-cell.marked {
-            background: #667eea;
-            color: #fff;
-        }
-        .cartela-cell.free {
-            background: #f59e0b;
-            color: #000;
-        }
-        .cartela-cell.called {
-            border-color: #38ef7d;
-            animation: pulse 1s infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.05); }
+    }, 2000);
+}
+
+function leaveRoom() {
+    if (gamePollInterval) {
+        clearInterval(gamePollInterval);
+        gamePollInterval = null;
+    }
+    currentRoom = null;
+    document.getElementById('game-active').classList.add('hidden');
+    document.getElementById('game-inactive').classList.remove('hidden');
+    showTab('rooms');
+}
+
+async function loadRoomState(roomId) {
+    try {
+        const res = await fetch(`${API_BASE}/api/rooms/${roomId}/state`, { headers: getAuthHeaders() });
+        const state = await res.json();
+        if (state.error) {
+            if (state.error.includes('not found') || state.error.includes('not in room')) {
+                leaveRoom();
+                showToast('You were removed from the room');
+            }
+            return;
         }
         
-        .cartela-preview {
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 2px;
-            max-width: 120px;
-            margin: 0 auto 8px;
-        }
-        .cartela-preview-cell {
-            aspect-ratio: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #16213e;
-            border-radius: 4px;
-            font-size: 9px;
-        }
-        .cartela-preview-cell.free { background: #f59e0b; }
+        // Update current call with animation
+        const currentCallEl = document.getElementById('current-call');
+        const newCall = state.current_call;
+        const oldCall = currentCallEl.dataset.lastCall;
         
-        .cartela-selector {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 8px;
-            max-height: 400px;
-            overflow-y: auto;
-        }
-        .cartela-option {
-            background: #16213e;
-            border-radius: 12px;
-            padding: 8px;
-            cursor: pointer;
-            border: 2px solid transparent;
-            transition: all 0.3s;
-            text-align: center;
-        }
-        .cartela-option:hover { border-color: #667eea; }
-        .cartela-option.selected {
-            border-color: #38ef7d;
-            background: #0f3460;
-        }
-        .cartela-option .cartela-id {
-            font-size: 12px;
-            font-weight: 700;
-            color: #a78bfa;
-            margin-bottom: 4px;
+        if (newCall && newCall !== oldCall) {
+            currentCallEl.textContent = newCall;
+            currentCallEl.dataset.lastCall = newCall;
+            currentCallEl.classList.add('new-call');
+            setTimeout(() => currentCallEl.classList.remove('new-call'), 1000);
+        } else if (!newCall) {
+            currentCallEl.textContent = '--';
+            currentCallEl.dataset.lastCall = '';
         }
         
-        .modal-overlay {
+        // Update game status
+        const statusEl = document.getElementById('game-status');
+        statusEl.textContent = state.status;
+        statusEl.className = `status status-${state.status}`;
+        
+        // Update called numbers grid (sorted)
+        const calledDiv = document.getElementById('called-numbers');
+        const calledNumbers = state.called_numbers || [];
+        const sortedCalled = [...calledNumbers].sort((a, b) => a - b);
+        
+        calledDiv.innerHTML = sortedCalled.map(n => 
+            `<span class="called-number">${n}</span>`
+        ).join('');
+        
+        // Update cartelas
+        renderMyCartelas(state.my_cartelas, state.my_marked, calledNumbers);
+        
+        // Update room info if available
+        if (state.pot !== undefined) {
+            const potEl = document.getElementById('game-pot');
+            if (potEl) potEl.textContent = `${state.pot.toFixed(0)} ETB`;
+        }
+        if (state.players !== undefined) {
+            const playersEl = document.getElementById('game-players');
+            if (playersEl) playersEl.textContent = `${state.players} players`;
+        }
+        
+        // Game over handling
+        if (state.status === 'completed') {
+            clearInterval(gamePollInterval);
+            gamePollInterval = null;
+            
+            if (state.winner) {
+                if (state.winner.id === currentUser?.id) {
+                    showToast('🎉 YOU WON! Check your balance!');
+                    confetti();
+                } else {
+                    showToast(`🏆 ${state.winner.name} won the game!`);
+                }
+            } else {
+                showToast('Game ended with no winner.');
+            }
+            
+            // Show a "Back to Rooms" button or auto-return after delay
+            setTimeout(() => {
+                leaveRoom();
+            }, 5000);
+        }
+    } catch (e) {
+        console.error('Room state error:', e);
+    }
+}
+
+function renderMyCartelas(cartelas, marked, calledNumbers) {
+    const container = document.getElementById('my-cartelas');
+    if (!cartelas || cartelas.length === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="icon">🎫</div><div>No cartelas yet</div></div>';
+        return;
+    }
+    
+    const calledSet = new Set(calledNumbers || []);
+    
+    container.innerHTML = cartelas.map((cartela, cidx) => `
+        <div class="cartela-wrapper" data-cartela="${cidx}">
+            <div class="cartela-header">
+                <span>Cartela #${cidx + 1}</span>
+                <span class="cartela-progress">${countMarked(marked, cidx)}/25</span>
+            </div>
+            <div class="cartela-grid">
+                ${cartela.map((num, idx) => {
+                    const isMarked = marked && marked[cidx] && marked[cidx].includes(idx);
+                    const isCalled = calledSet.has(num) && num !== 0;
+                    const isFree = num === 0;
+                    
+                    // Determine cell classes
+                    let classes = ['cartela-cell'];
+                    if (isFree) classes.push('free');
+                    if (isMarked) classes.push('marked');
+                    if (isCalled && !isFree && !isMarked) classes.push('called');
+                    
+                    return `
+                        <div class="${classes.join(' ')}"
+                             data-number="${num}"
+                             data-cartela="${cidx}"
+                             data-index="${idx}"
+                             onclick="handleCellClick(this, '${currentRoom}', ${cidx}, ${idx}, ${num})">
+                            ${isFree ? '★' : num}
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        </div>
+    `).join('');
+}
+
+function countMarked(marked, cidx) {
+    if (!marked || !marked[cidx]) return 0;
+    return marked[cidx].length;
+}
+
+function handleCellClick(cell, roomId, cartelaIdx, numberIdx, number) {
+    // Don't allow clicking if game isn't active
+    const statusEl = document.getElementById('game-status');
+    if (statusEl && statusEl.textContent !== 'active') {
+        showToast('Wait for the game to start!');
+        return;
+    }
+    
+    // Don't allow clicking free space (it's auto-marked)
+    if (number === 0) return;
+    
+    // Don't allow clicking uncalled numbers
+    if (!cell.classList.contains('called') && !cell.classList.contains('marked')) {
+        showToast('That number hasn\'t been called yet!');
+        return;
+    }
+    
+    // Toggle mark
+    markNumber(roomId, cartelaIdx, numberIdx);
+}
+
+async function markNumber(roomId, cartelaIdx, numberIdx) {
+    try {
+        const res = await fetch(`${API_BASE}/api/rooms/${roomId}/mark`, {
+            method: 'POST',
+            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cartela_index: cartelaIdx, number_index: numberIdx })
+        });
+        const data = await res.json();
+        
+        if (data.error) {
+            showToast(data.error);
+            return;
+        }
+        
+        if (data.winner) {
+            showToast('🎉 BINGO! YOU WON!');
+            confetti();
+            // Refresh state to show final board
+            loadRoomState(roomId);
+        } else if (data.marked) {
+            // Optimistically update UI before next poll
+            const cell = document.querySelector(`[data-cartela="${cartelaIdx}"][data-index="${numberIdx}"]`);
+            if (cell) {
+                cell.classList.add('marked');
+                cell.classList.remove('called');
+            }
+            // Update progress counter
+            const progressEl = document.querySelector(`.cartela-wrapper[data-cartela="${cartelaIdx}"] .cartela-progress`);
+            if (progressEl) {
+                const current = parseInt(progressEl.textContent.split('/')[0]) || 0;
+                progressEl.textContent = `${current + 1}/25`;
+            }
+        }
+    } catch (e) {
+        showToast('Failed to mark number');
+    }
+}
+
+// Profile
+async function loadProfile() {
+    try {
+        const res = await fetch(`${API_BASE}/api/user/profile`, { headers: getAuthHeaders() });
+        const user = await res.json();
+        
+        document.getElementById('profile-info').innerHTML = `
+            <div class="info-row"><span class="info-label">Name:</span><span class="info-value">${user.first_name} ${user.last_name || ''}</span></div>
+            <div class="info-row"><span class="info-label">Username:</span><span class="info-value">@${user.username || 'N/A'}</span></div>
+            <div class="info-row"><span class="info-label">Balance:</span><span class="info-value">${user.balance.toFixed(2)} ETB</span></div>
+            <div class="info-row"><span class="info-label">Games Played:</span><span class="info-value">${user.stats.games_played}</span></div>
+            <div class="info-row"><span class="info-label">Games Won:</span><span class="info-value">${user.stats.games_won}</span></div>
+            <div class="info-row"><span class="info-label">Win Rate:</span><span class="info-value">${user.stats.win_rate}%</span></div>
+        `;
+        
+        loadTransactions();
+    } catch (e) {
+        document.getElementById('profile-info').innerHTML = '<div class="empty-state">Failed to load profile</div>';
+    }
+}
+
+async function loadTransactions() {
+    try {
+        const res = await fetch(`${API_BASE}/api/user/transactions`, { headers: getAuthHeaders() });
+        const txs = await res.json();
+        
+        const list = document.getElementById('transactions-list');
+        if (txs.length === 0) {
+            list.innerHTML = '<div style="text-align:center;color:#8892b0;padding:20px;">No transactions yet</div>';
+            return;
+        }
+        
+        list.innerHTML = txs.slice(0, 10).map(t => `
+            <div class="info-row">
+                <span class="info-label">${t.type}</span>
+                <span class="info-value" style="color:${t.amount > 0 ? '#38ef7d' : '#ef4444'}">
+                    ${t.amount > 0 ? '+' : ''}${t.amount.toFixed(0)} ETB
+                </span>
+            </div>
+        `).join('');
+    } catch (e) {
+        console.error('Transactions error:', e);
+    }
+}
+
+// Deposit / Withdraw
+function openDeposit() { openModal('modal-deposit'); }
+function openWithdraw() { openModal('modal-withdraw'); }
+
+async function requestDeposit() {
+    const amount = parseFloat(document.getElementById('deposit-amount').value);
+    if (!amount || amount < 10) { showToast('Min deposit 10 ETB'); return; }
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/user/deposit`, {
+            method: 'POST',
+            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount })
+        });
+        const data = await res.json();
+        if (data.error) { showToast(data.error); return; }
+        
+        showToast(`✅ Deposit #${data.deposit_id} requested!`);
+        showToast(`📱 Send ${amount} ETB to 0936719379 (Alazar)`);
+        closeModal('modal-deposit');
+    } catch (e) {
+        showToast('Deposit request failed');
+    }
+}
+
+async function requestWithdrawal() {
+    const amount = parseFloat(document.getElementById('withdraw-amount').value);
+    const phone = document.getElementById('withdraw-phone').value;
+    if (!amount || amount < 50) { showToast('Min withdrawal 50 ETB'); return; }
+    if (!phone) { showToast('Enter phone number'); return; }
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/user/withdraw`, {
+            method: 'POST',
+            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount, phone_number: phone })
+        });
+        const data = await res.json();
+        if (data.error) { showToast(data.error); return; }
+        
+        showToast(`✅ Withdrawal #${data.withdrawal_id} requested!`);
+        closeModal('modal-withdraw');
+        loadProfile();
+    } catch (e) {
+        showToast('Withdrawal request failed');
+    }
+}
+
+// UI Helpers
+function openModal(id) { document.getElementById(id).classList.add('active'); }
+function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+function showToast(msg) {
+    const toast = document.getElementById('toast');
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 3000);
+}
+
+function confetti() {
+    for (let i = 0; i < 50; i++) {
+        const el = document.createElement('div');
+        el.style.cssText = `
             position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.8);
-            display: none;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-            padding: 16px;
-        }
-        .modal-overlay.active { display: flex; }
-        .modal {
-            background: #1a1a2e;
-            border-radius: 20px;
-            padding: 24px;
-            width: 100%;
-            max-width: 400px;
-            max-height: 80vh;
-            overflow-y: auto;
-        }
-        .modal-title {
-            font-size: 20px;
-            font-weight: 700;
-            margin-bottom: 16px;
-            text-align: center;
-        }
-        
-        .input {
-            width: 100%;
-            padding: 12px;
-            background: #16213e;
-            border: 1px solid #0f3460;
-            border-radius: 10px;
-            color: #fff;
-            font-size: 16px;
-            margin-bottom: 12px;
-        }
-        .input:focus { outline: none; border-color: #667eea; }
-        
-        .tabs {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 16px;
-        }
-        .tab {
-            flex: 1;
-            padding: 10px;
-            background: #16213e;
-            border: none;
-            border-radius: 10px;
-            color: #8892b0;
-            font-size: 14px;
-            cursor: pointer;
-        }
-        .tab.active {
-            background: #667eea;
-            color: #fff;
-        }
-        
-        .game-board {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-        .current-call {
-            text-align: center;
-            font-size: 48px;
-            font-weight: 800;
-            color: #f59e0b;
-            text-shadow: 0 0 20px rgba(245,158,11,0.5);
-        }
-        .called-numbers {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 4px;
-            justify-content: center;
-            max-height: 100px;
-            overflow-y: auto;
-        }
-        .called-number {
-            padding: 4px 8px;
-            background: #16213e;
-            border-radius: 6px;
-            font-size: 12px;
-        }
-        
-        .toast {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%) translateY(100px);
-            background: #1a1a2e;
-            color: #fff;
-            padding: 12px 24px;
-            border-radius: 12px;
-            font-size: 14px;
-            z-index: 2000;
-            transition: transform 0.3s;
-            border: 1px solid #667eea;
-        }
-        .toast.show { transform: translateX(-50%) translateY(0); }
-        
-        .empty-state {
-            text-align: center;
-            padding: 40px 20px;
-            color: #8892b0;
-        }
-        .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
-        
-        .loading {
-            text-align: center;
-            padding: 40px;
-        }
-        .spinner {
-            width: 40px;
-            height: 40px;
-            border: 3px solid #667eea;
-            border-top-color: transparent;
+            width: 10px; height: 10px;
+            background: hsl(${Math.random() * 360}, 100%, 50%);
+            left: ${Math.random() * 100}vw;
+            top: -10px;
             border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 16px;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        
-        .hidden { display: none !important; }
-        
-        .info-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid #2a2a4e;
-            font-size: 14px;
-        }
-        .info-row:last-child { border-bottom: none; }
-        .info-label { color: #8892b0; }
-        .info-value { font-weight: 600; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <!-- Header -->
-        <div class="header">
-            <h1>🎱 NEXUS BINGO</h1>
-            <div class="balance" id="balance">💰 Loading...</div>
-        </div>
-        
-        <!-- Tabs -->
-        <div class="tabs">
-            <button class="tab active" onclick="showTab('rooms')">🎮 Rooms</button>
-            <button class="tab" onclick="showTab('game')">🎯 Game</button>
-            <button class="tab" onclick="showTab('profile')">👤 Profile</button>
-        </div>
-        
-        <!-- Rooms Tab -->
-        <div id="tab-rooms">
-            <div class="section">
-                <div class="section-title">⚡ Quick Actions</div>
-                <button class="btn btn-primary" onclick="openCreateRoom()">➕ Create Room</button>
-                <button class="btn btn-secondary" onclick="openJoinByCode()">🔑 Join Private Room</button>
-                <button class="btn btn-success" onclick="loadRooms()">🔄 Refresh</button>
-            </div>
-            
-            <div class="section">
-                <div class="section-title">🏠 Available Rooms</div>
-                <div id="rooms-list">
-                    <div class="loading">
-                        <div class="spinner"></div>
-                        <div>Loading rooms...</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Game Tab -->
-        <div id="tab-game" class="hidden">
-            <div id="game-active" class="hidden">
-                <div class="section">
-                    <div class="current-call" id="current-call">--</div>
-                    <div style="text-align: center; margin-bottom: 12px;">
-                        <span id="game-status" class="status status-waiting">Waiting</span>
-                    </div>
-                    <div class="called-numbers" id="called-numbers"></div>
-                </div>
-                
-                <div class="section">
-                    <div class="section-title">🎲 Your Cartelas</div>
-                    <div id="my-cartelas"></div>
-                </div>
-            </div>
-            
-            <div id="game-inactive">
-                <div class="empty-state">
-                    <div class="icon">🎮</div>
-                    <div>Join or create a room to start playing!</div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Profile Tab -->
-        <div id="tab-profile" class="hidden">
-            <div class="section">
-                <div class="section-title">👤 Profile</div>
-                <div id="profile-info">
-                    <div class="loading"><div class="spinner"></div></div>
-                </div>
-            </div>
-            
-            <div class="section">
-                <div class="section-title">💰 Transactions</div>
-                <button class="btn btn-success" onclick="openDeposit()">⬇️ Deposit</button>
-                <button class="btn btn-danger" onclick="openWithdraw()">⬆️ Withdraw</button>
-                <div id="transactions-list" style="margin-top: 12px;"></div>
-            </div>
-        </div>
-    </div>
-    <!-- Create Room Modal -->
-    <div class="modal-overlay" id="modal-create">
-        <div class="modal">
-            <div class="modal-title">➕ Create Room</div>
-            <input type="number" class="input" id="create-stake" placeholder="Stake (ETB)" value="10" min="1">
-            <input type="number" class="input" id="create-max-players" placeholder="Max Players (1-1000)" value="20" min="1" max="1000">
-            <input type="number" class="input" id="create-cartelas" placeholder="Cartelas (1-3)" value="1" min="1" max="3">
-            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 14px;">
-                <input type="checkbox" id="create-private"> Private Room (Invite Only)
-            </label>
-            <div style="margin-bottom: 12px;">
-                <label style="font-size: 14px; margin-bottom: 8px; display: block;">Cartela Selection:</label>
-                <button class="btn btn-secondary btn-half" onclick="toggleCartelaSelection('random')" id="btn-random" style="margin-bottom: 0;">🎲 Random</button>
-                <button class="btn btn-secondary btn-half" onclick="openCartelaPicker()" id="btn-manual" style="margin-bottom: 0;">🎯 Pick 1-500</button>
-            </div>
-            <div id="selected-cartelas-display" style="font-size: 14px; color: #38ef7d; margin-bottom: 12px;"></div>
-            <button class="btn btn-primary" onclick="createRoom()">🚀 Create & Join</button>
-            <button class="btn btn-secondary" onclick="closeModal('modal-create')">Cancel</button>
-        </div>
-    </div>
-    
-    <!-- Cartela Picker Modal -->
-    <div class="modal-overlay" id="modal-cartelas">
-        <div class="modal" style="max-width: 480px;">
-            <div class="modal-title">🎯 Select Your Cartelas</div>
-            <div style="font-size: 14px; color: #8892b0; margin-bottom: 12px; text-align: center;">
-                Click to select/deselect (max <span id="max-cartelas-allowed">3</span>)
-            </div>
-            <div class="cartela-selector" id="cartela-selector"></div>
-            <div style="text-align: center; margin: 12px 0;">
-                <span id="selected-count" style="color: #38ef7d; font-weight: 600;">Selected: 0</span>
-            </div>
-            <button class="btn btn-success" onclick="confirmCartelaSelection()">✅ Confirm Selection</button>
-            <button class="btn btn-secondary" onclick="closeModal('modal-cartelas')">Cancel</button>
-        </div>
-    </div>
-    
-    <!-- Join by Code Modal -->
-    <div class="modal-overlay" id="modal-join-code">
-        <div class="modal">
-            <div class="modal-title">🔑 Join Private Room</div>
-            <input type="text" class="input" id="join-code" placeholder="Enter Invite Code (e.g., AB12CD34)" maxlength="8">
-            <input type="number" class="input" id="join-code-cartelas" placeholder="Cartelas (1-3)" value="1" min="1" max="3">
-            <button class="btn btn-primary" onclick="joinByCode()">🚪 Join Room</button>
-            <button class="btn btn-secondary" onclick="closeModal('modal-join-code')">Cancel</button>
-        </div>
-    </div>
-    
-    <!-- Deposit Modal -->
-    <div class="modal-overlay" id="modal-deposit">
-        <div class="modal">
-            <div class="modal-title">⬇️ Deposit</div>
-            <input type="number" class="input" id="deposit-amount" placeholder="Amount (ETB)" min="10">
-            <div style="font-size: 14px; margin-bottom: 12px;">
-                <div class="info-row"><span class="info-label">Telebirr:</span><span class="info-value">0936719379 (Alazar)</span></div>
-                <div class="info-row"><span class="info-label">CBE:</span><span class="info-value">Will be provided</span></div>
-            </div>
-            <button class="btn btn-success" onclick="requestDeposit()">💰 Request Deposit</button>
-            <button class="btn btn-secondary" onclick="closeModal('modal-deposit')">Cancel</button>
-        </div>
-    </div>
-    
-    <!-- Withdraw Modal -->
-    <div class="modal-overlay" id="modal-withdraw">
-        <div class="modal">
-            <div class="modal-title">⬆️ Withdraw</div>
-            <input type="number" class="input" id="withdraw-amount" placeholder="Amount (ETB)" min="50">
-            <input type="tel" class="input" id="withdraw-phone" placeholder="Phone Number (for Telebirr/CBE)">
-            <button class="btn btn-danger" onclick="requestWithdrawal()">💸 Request Withdrawal</button>
-            <button class="btn btn-secondary" onclick="closeModal('modal-withdraw')">Cancel</button>
-        </div>
-    </div>
-    
-    <!-- Toast -->
-    <div class="toast" id="toast"></div>
-    
-    <script src="/static/js/app.js"></script>
-</body>
-</html>
+            z-index: 9999;
+            animation: fall ${2 + Math.random() * 2}s linear forwards;
+        `;
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 4000);
+    }
+}
+
+// Close modals on overlay click
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) overlay.classList.remove('active');
+    });
+});
