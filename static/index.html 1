@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>NEXUS BINGO - Play</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f0f23;
+            color: #fff;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        .container { max-width: 480px; margin: 0 auto; padding: 16px; }
+        .header {
+            text-align: center;
+            padding: 20px 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 16px;
+            margin-bottom: 16px;
+        }
+        .header h1 { font-size: 28px; font-weight: 800; letter-spacing: 2px; }
+        .header .balance {
+            font-size: 18px;
+            margin-top: 8px;
+            background: rgba(255,255,255,0.2);
+            padding: 8px 16px;
+            border-radius: 20px;
+            display: inline-block;
+        }
+        .section {
+            background: #1a1a2e;
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 16px;
+            border: 1px solid #2a2a4e;
+        }
+        .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: #a78bfa;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 8px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+        .btn-danger {
+            background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
+            color: white;
+        }
+        .btn-secondary {
+            background: #2a2a4e;
+            color: #fff;
+        }
+        .btn-half {
+            width: calc(50% - 4px);
+            display: inline-block;
+        }
+        .btn-half:nth-child(even) { margin-left: 8px; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn:active { transform: scale(0.98); }
+        
+        /* Stake Selector Grid */
+        .stake-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+        .stake-card {
+            background: linear-gradient(135deg, #16213e 0%, #1a1a2e 100%);
+            border: 2px solid #0f3460;
+            border-radius: 16px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .stake-card:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
+        }
+        .stake-card:active { transform: scale(0.98); }
+        .stake-amount {
+            font-size: 28px;
+            font-weight: 800;
+            color: #38ef7d;
+            margin-bottom: 4px;
+        }
+        .stake-label {
+            font-size: 13px;
+            color: #8892b0;
+            margin-bottom: 8px;
+        }
+        .stake-players {
+            font-size: 12px;
+            color: #a78bfa;
+            background: #0f3460;
+            padding: 4px 10px;
+            border-radius: 10px;
+            display: inline-block;
+        }
+        
+        .cartela-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 4px;
+            max-width: 280px;
+            margin: 0 auto;
+        }
+        .cartela-cell {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #16213e;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+        .cartela-cell:hover { background: #1e3a5f; }
+        .cartela-cell.marked {
+            background: #667eea;
+            color: #fff;
+        }
+        .cartela-cell.free {
+            background: #f59e0b;
+            color: #000;
+        }
+        .cartela-cell.called {
+            border-color: #38ef7d;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        
+        .cartela-preview {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 2px;
+            max-width: 120px;
+            margin: 0 auto 8px;
+        }
+        .cartela-preview-cell {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #16213e;
+            border-radius: 4px;
+            font-size: 9px;
+        }
+        .cartela-preview-cell.free { background: #f59e0b; }
+        
+        .cartela-selector {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .cartela-option {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 8px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.3s;
+            text-align: center;
+        }
+        .cartela-option:hover { border-color: #667eea; }
+        .cartela-option.selected {
+            border-color: #38ef7d;
+            background: #0f3460;
+        }
+        .cartela-option .cartela-id {
+            font-size: 12px;
+            font-weight: 700;
+            color: #a78bfa;
+            margin-bottom: 4px;
+        }
+        
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 16px;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: #1a1a2e;
+            border-radius: 20px;
+            padding: 24px;
+            width: 100%;
+            max-width: 400px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .modal-title {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+        
+        .input {
+            width: 100%;
+            padding: 12px;
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 10px;
+            color: #fff;
+            font-size: 16px;
+            margin-bottom: 12px;
+        }
+        .input:focus { outline: none; border-color: #667eea; }
+        
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        .tab {
+            flex: 1;
+            padding: 10px;
+            background: #16213e;
+            border: none;
+            border-radius: 10px;
+            color: #8892b0;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .tab.active {
+            background: #667eea;
+            color: #fff;
+        }
+        
+        .game-board {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .current-call {
+            text-align: center;
+            font-size: 48px;
+            font-weight: 800;
+            color: #f59e0b;
+            text-shadow: 0 0 20px rgba(245,158,11,0.5);
+        }
+        .called-numbers {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            justify-content: center;
+            max-height: 100px;
+            overflow-y: auto;
+        }
+        .called-number {
+            padding: 4px 8px;
+            background: #16213e;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+        
+        /* Timer display */
+        .game-timer {
+            text-align: center;
+            font-size: 14px;
+            color: #f59e0b;
+            margin-bottom: 8px;
+            padding: 8px;
+            background: rgba(245, 158, 11, 0.1);
+            border-radius: 8px;
+            border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: #1a1a2e;
+            color: #fff;
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-size: 14px;
+            z-index: 2000;
+            transition: transform 0.3s;
+            border: 1px solid #667eea;
+        }
+        .toast.show { transform: translateX(-50%) translateY(0); }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #8892b0;
+        }
+        .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #667eea;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .hidden { display: none !important; }
+        
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #2a2a4e;
+            font-size: 14px;
+        }
+        .info-row:last-child { border-bottom: none; }
+        .info-label { color: #8892b0; }
+        .info-value { font-weight: 600; }
+
+        /* Game Screen Enhancements */
+        #current-call {
+            transition: all 0.3s ease;
+        }
+
+        #current-call.new-call {
+            animation: callPop 1s ease;
+        }
+
+        @keyframes callPop {
+            0% { transform: scale(1); }
+            30% { transform: scale(1.3); color: #ffd700; }
+            100% { transform: scale(1); }
+        }
+
+        .cartela-wrapper {
+            margin-bottom: 20px;
+            background: #1a1a2e;
+            border-radius: 12px;
+            padding: 12px;
+            border: 1px solid #2a2a4e;
+        }
+
+        .cartela-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: #a78bfa;
+        }
+
+        .cartela-progress {
+            background: #2a2a4e;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .cartela-cell.called {
+            background: rgba(255, 193, 7, 0.2);
+            border-color: #ffc107;
+            color: #ffc107;
+            cursor: pointer;
+        }
+
+        .cartela-cell.called:hover {
+            background: rgba(255, 193, 7, 0.4);
+        }
+
+        .cartela-cell.marked {
+            background: #28a745;
+            color: white;
+            border-color: #1e7e34;
+            cursor: default;
+        }
+
+        .cartela-cell.marked::after {
+            content: '✓';
+            position: absolute;
+            font-size: 10px;
+            top: 2px;
+            right: 2px;
+        }
+
+        .cartela-cell {
+            position: relative;
+            transition: all 0.2s ease;
+        }
+
+        .called-number {
+            display: inline-block;
+            padding: 4px 8px;
+            margin: 2px;
+            background: #2a2a4e;
+            border-radius: 6px;
+            font-weight: bold;
+            font-size: 13px;
+            animation: numberAppear 0.3s ease;
+        }
+
+        @keyframes numberAppear {
+            from { opacity: 0; transform: scale(0.5); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        /* Game info bar */
+        .game-info-bar {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            margin-bottom: 10px;
+            font-size: 13px;
+            color: #8892b0;
+        }
+
+        .game-info-bar span {
+            background: #1a1a2e;
+            padding: 4px 12px;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🎱 NEXUS BINGO</h1>
+            <div class="balance" id="balance">💰 Loading...</div>
+        </div>
+        
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('rooms')">🎮 Play</button>
+            <button class="tab" onclick="showTab('game')">🎯 Game</button>
+            <button class="tab" onclick="showTab('profile')">👤 Profile</button>
+        </div>
+        
+        <!-- Rooms Tab (Now Stake Selector) -->
+        <div id="tab-rooms">
+            <div id="rooms-list">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <div>Loading stakes...</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Game Tab -->
+        <div id="tab-game" class="hidden">
+            <div id="game-active" class="hidden">
+                <div class="game-info-bar">
+                    <span id="game-pot">💰 0 ETB</span>
+                    <span id="game-players">👥 0/20</span>
+                </div>
+                <div class="game-timer hidden" id="game-timer"></div>
+                <div class="section">
+                    <div class="current-call" id="current-call">--</div>
+                    <div style="text-align: center; margin-bottom: 12px;">
+                        <span id="game-status" class="status status-waiting">Waiting</span>
+                    </div>
+                    <div class="called-numbers" id="called-numbers"></div>
+                </div>
+                
+                <div class="section">
+                    <div class="section-title">🎲 Your Cartelas</div>
+                    <div id="my-cartelas"></div>
+                </div>
+            </div>
+            
+            <div id="game-inactive">
+                <div class="empty-state">
+                    <div class="icon">🎮</div>
+                    <div>Pick a stake to start playing!</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Profile Tab -->
+        <div id="tab-profile" class="hidden">
+            <div class="section">
+                <div class="section-title">👤 Profile</div>
+                <div id="profile-info">
+                    <div class="loading"><div class="spinner"></div></div>
+                </div>
+            </div>
+            
+            <div class="section">
+                <div class="section-title">💰 Transactions</div>
+                <button class="btn btn-success" onclick="openDeposit()">⬇️ Deposit</button>
+                <button class="btn btn-danger" onclick="openWithdraw()">⬆️ Withdraw</button>
+                <div id="transactions-list" style="margin-top: 12px;"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Deposit Modal -->
+    <div class="modal-overlay" id="modal-deposit">
+        <div class="modal">
+            <div class="modal-title">⬇️ Deposit</div>
+            <input type="number" class="input" id="deposit-amount" placeholder="Amount (ETB)" min="10">
+            <div style="font-size: 14px; margin-bottom: 12px;">
+                <div class="info-row"><span class="info-label">Telebirr:</span><span class="info-value">0936719379 (Alazar)</span></div>
+                <div class="info-row"><span class="info-label">CBE:</span><span class="info-value">Will be provided</span></div>
+            </div>
+            <button class="btn btn-success" onclick="requestDeposit()">💰 Request Deposit</button>
+            <button class="btn btn-secondary" onclick="closeModal('modal-deposit')">Cancel</button>
+        </div>
+    </div>
+    
+    <!-- Withdraw Modal -->
+    <div class="modal-overlay" id="modal-withdraw">
+        <div class="modal">
+            <div class="modal-title">⬆️ Withdraw</div>
+            <input type="number" class="input" id="withdraw-amount" placeholder="Amount (ETB)" min="50">
+            <input type="tel" class="input" id="withdraw-phone" placeholder="Phone Number (for Telebirr/CBE)">
+            <button class="btn btn-danger" onclick="requestWithdrawal()">💸 Request Withdrawal</button>
+            <button class="btn btn-secondary" onclick="closeModal('modal-withdraw')">Cancel</button>
+        </div>
+    </div>
+    
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+    
+    <script src="/static/app.js"></script>
+</body>
+</html>
