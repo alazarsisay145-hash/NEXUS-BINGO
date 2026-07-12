@@ -1225,7 +1225,193 @@ def webhook():
             elif text.startswith('/'):
                 send_telegram_message(chat_id, f"❓ Unknown: {text}\nUse /help")
 
+        # Handle callback queries (inline button clicks)
+        if 'callback_query' in data:
+            await handle_callback_query(data['callback_query'])
+            return jsonify({"ok": True}), 200
+
         return jsonify({"ok": True}), 200
+
+async def handle_callback_query(callback_query):
+    """Handle inline button clicks from admin notifications"""
+    try:
+        query_id = callback_query['id']
+        chat_id = callback_query['message']['chat']['id']
+        data = callback_query['data']
+
+        # Answer the callback query immediately
+        answer_callback(query_id, "Processing...")
+
+        # Parse callback data: "action_type:id"
+        parts = data.split(':')
+        if len(parts) != 2:
+            return
+
+        action, item_id = parts[0], int(parts[1])
+
+        # Check if user is admin
+        if chat_id not in Config.ADMIN_IDS:
+            answer_callback(query_id, "❌ Unauthorized! Admin only.")
+            return
+
+        if action == 'approve_deposit':
+            success = await process_deposit_approval(item_id, True, chat_id)
+            if success:
+                answer_callback(query_id, "✅ Deposit approved! Balance updated.")
+                edit_message_text(chat_id, callback_query['message']['message_id'],
+                    callback_query['message']['text'] + "\n\n✅ <b>APPROVED</b> by admin")
+            else:
+                answer_callback(query_id, "❌ Failed to approve deposit.")
+
+        elif action == 'reject_deposit':
+            success = await process_deposit_approval(item_id, False, chat_id)
+            if success:
+                answer_callback(query_id, "❌ Deposit rejected.")
+                edit_message_text(chat_id, callback_query['message']['message_id'],
+                    callback_query['message']['text'] + "\n\n❌ <b>REJECTED</b> by admin")
+            else:
+                answer_callback(query_id, "❌ Failed to reject deposit.")
+
+        elif action == 'approve_withdrawal':
+            success = await process_withdrawal_approval(item_id, True, chat_id)
+            if success:
+                answer_callback(query_id, "✅ Withdrawal approved! Send payment now.")
+                edit_message_text(chat_id, callback_query['message']['message_id'],
+                    callback_query['message']['text'] + "\n\n✅ <b>APPROVED</b> by admin\n📱 Send payment to player's phone")
+            else:
+                answer_callback(query_id, "❌ Failed to approve withdrawal.")
+
+        elif action == 'reject_withdrawal':
+            success = await process_withdrawal_approval(item_id, False, chat_id)
+            if success:
+                answer_callback(query_id, "❌ Withdrawal rejected. Balance refunded.")
+                edit_message_text(chat_id, callback_query['message']['message_id'],
+                    callback_query['message']['text'] + "\n\n❌ <b>REJECTED</b> by admin\n💰 Balance refunded to player")
+            else:
+                answer_callback(query_id, "❌ Failed to reject withdrawal.")
+
+    except Exception as e:
+        logger.error(f"Callback query error: {e}", exc_info=True)
+
+def answer_callback(query_id, text):
+    """Answer a callback query"""
+    try:
+        requests.post(f"https://api.telegram.org/bot{Config.BOT_TOKEN}/answerCallbackQuery",
+            json={"callback_query_id": query_id, "text": text, "show_alert": False}, timeout=5)
+    except Exception as e:
+        logger.error(f"Answer callback error: {e}")
+
+def edit_message_text(chat_id, message_id, text):
+    """Edit a message text"""
+    try:
+        requests.post(f"https://api.telegram.org/bot{Config.BOT_TOKEN}/editMessageText",
+            json={"chat_id": chat_id, "message_id": message_id, "text": text, "parse_mode": "HTML"}, timeout=5)
+    except Exception as e:
+        logger.error(f"Edit message error: {e}")
+
+async def process_deposit_approval(deposit_id, approved, admin_id):
+    """Process deposit approval from inline button"""
+    try:
+        with app.app_context():
+            deposit = Deposit.query.get(deposit_id)
+            if not deposit or deposit.status != 'pending':
+                return False
+
+            if approved:
+                deposit.status = 'approved'
+                deposit.approved_at = datetime.utcnow()
+                deposit.approved_by = admin_id
+
+                user = User.query.filter_by(telegram_id=deposit.user_id).first()
+                if user:
+                    user.balance = Decimal(float(user.balance)) + Decimal(float(deposit.amount))
+                    user.total_deposited = Decimal(float(user.total_deposited)) + Decimal(float(deposit.amount))
+
+                    transaction = Transaction(
+                        user_id=deposit.user_id,
+                        type='deposit',
+                        amount=deposit.amount,
+                        description=f'Deposit #{deposit.id} approved via Telegram'
+                    )
+                    db.session.add(transaction)
+
+                    # Notify player
+                    send_telegram_message(deposit.user_id,
+                        f"✅ <b>Deposit Approved!</b>\n"
+                        f"Amount: {float(deposit.amount):.0f} ETB\n"
+                        f"New Balance: {float(user.balance):.0f} ETB\n"
+                        f"\n🎮 Start playing now!")
+            else:
+                deposit.status = 'rejected'
+                deposit.approved_at = datetime.utcnow()
+                deposit.approved_by = admin_id
+
+                send_telegram_message(deposit.user_id,
+                    f"❌ <b>Deposit Rejected</b>\n"
+                    f"Amount: {float(deposit.amount):.0f} ETB\n"
+                    f"Contact admin for more info.")
+
+            db.session.commit()
+            return True
+
+    except Exception as e:
+        logger.error(f"Process deposit approval error: {e}", exc_info=True)
+        db.session.rollback()
+        return False
+
+async def process_withdrawal_approval(withdrawal_id, approved, admin_id):
+    """Process withdrawal approval from inline button"""
+    try:
+        with app.app_context():
+            withdrawal = Withdrawal.query.get(withdrawal_id)
+            if not withdrawal or withdrawal.status != 'pending':
+                return False
+
+            if approved:
+                withdrawal.status = 'approved'
+                withdrawal.approved_at = datetime.utcnow()
+                withdrawal.approved_by = admin_id
+
+                user = User.query.filter_by(telegram_id=withdrawal.user_id).first()
+                if user:
+                    user.total_withdrawn = Decimal(float(user.total_withdrawn)) + Decimal(float(withdrawal.amount))
+
+                    transaction = Transaction(
+                        user_id=withdrawal.user_id,
+                        type='withdrawal',
+                        amount=withdrawal.amount,
+                        description=f'Withdrawal #{withdrawal.id} approved via Telegram'
+                    )
+                    db.session.add(transaction)
+
+                    # Notify player
+                    send_telegram_message(withdrawal.user_id,
+                        f"✅ <b>Withdrawal Approved!</b>\n"
+                        f"Amount: {float(withdrawal.amount):.0f} ETB\n"
+                        f"Phone: {withdrawal.phone_number}\n"
+                        f"\n💸 Payment will be sent shortly!")
+            else:
+                withdrawal.status = 'rejected'
+                withdrawal.approved_at = datetime.utcnow()
+                withdrawal.approved_by = admin_id
+
+                user = User.query.filter_by(telegram_id=withdrawal.user_id).first()
+                if user:
+                    user.balance = Decimal(float(user.balance)) + Decimal(float(withdrawal.amount))
+
+                send_telegram_message(withdrawal.user_id,
+                    f"❌ <b>Withdrawal Rejected</b>\n"
+                    f"Amount: {float(withdrawal.amount):.0f} ETB\n"
+                    f"Balance refunded: {float(user.balance):.0f} ETB\n"
+                    f"Contact admin for more info.")
+
+            db.session.commit()
+            return True
+
+    except Exception as e:
+        logger.error(f"Process withdrawal approval error: {e}", exc_info=True)
+        db.session.rollback()
+        return False
     except Exception as e:
         logger.error(f"Webhook error: {e}", exc_info=True)
         return jsonify({"error": "Internal error"}), 500
@@ -1785,13 +1971,33 @@ def request_deposit():
         db.session.add(deposit)
         db.session.commit()
 
-        if Config.ADMIN_ID:
-            send_telegram_message(Config.ADMIN_ID, 
-                f"💰 <b>New Deposit Request</b>\n"
-                f"User: {user.first_name} (@{user.username or 'N/A'})\n"
-                f"Amount: {float(amount):.0f} ETB\n"
-                f"Deposit ID: #{deposit.id}\n"
-                f"Status: Pending approval")
+        # Notify ALL admins with inline approve buttons
+        admin_inline_keyboard = {
+            "inline_keyboard": [
+                [
+                    {"text": "✅ Approve", "callback_data": f"approve_deposit:{deposit.id}"},
+                    {"text": "❌ Reject", "callback_data": f"reject_deposit:{deposit.id}"}
+                ],
+                [
+                    {"text": "🔧 Open Admin Panel", "url": f"{Config.WEBAPP_URL}/admin"}
+                ]
+            ]
+        }
+
+        for admin_id in Config.ADMIN_IDS:
+            send_telegram_message(admin_id, 
+                f"🚨 <b>NEW DEPOSIT REQUEST</b>\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"👤 <b>Player:</b> {user.first_name}\n"
+                f"📛 <b>Username:</b> @{user.username or 'N/A'}\n"
+                f"🆔 <b>User ID:</b> <code>{user.telegram_id}</code>\n"
+                f"\n"
+                f"💰 <b>Amount:</b> <code>{float(amount):.0f} ETB</code>\n"
+                f"🆔 <b>Deposit ID:</b> #{deposit.id}\n"
+                f"📅 <b>Time:</b> {datetime.utcnow().strftime('%H:%M:%S')} UTC\n"
+                f"\n"
+                f"⚡ <b>Quick Action:</b> Click buttons below!",
+                reply_markup=admin_inline_keyboard)
 
         return jsonify({
             "deposit_id": deposit.id, 
@@ -1830,13 +2036,34 @@ def request_withdrawal():
         user_locked.balance = Decimal(float(user_locked.balance)) - Decimal(float(amount))
         db.session.commit()
 
-        if Config.ADMIN_ID:
-            send_telegram_message(Config.ADMIN_ID,
-                f"💸 <b>New Withdrawal Request</b>\n"
-                f"User: {user.first_name} (@{user.username or 'N/A'})\n"
-                f"Amount: {float(amount):.2f} ETB\n"
-                f"Phone: {data.get('phone_number', user.phone_number or 'N/A')}\n"
-                f"Withdrawal ID: #{withdrawal.id}")
+        # Notify ALL admins with inline approve buttons
+        admin_inline_keyboard = {
+            "inline_keyboard": [
+                [
+                    {"text": "✅ Approve & Pay", "callback_data": f"approve_withdrawal:{withdrawal.id}"},
+                    {"text": "❌ Reject & Refund", "callback_data": f"reject_withdrawal:{withdrawal.id}"}
+                ],
+                [
+                    {"text": "🔧 Open Admin Panel", "url": f"{Config.WEBAPP_URL}/admin"}
+                ]
+            ]
+        }
+
+        for admin_id in Config.ADMIN_IDS:
+            send_telegram_message(admin_id,
+                f"🚨 <b>NEW WITHDRAWAL REQUEST</b>\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"👤 <b>Player:</b> {user.first_name}\n"
+                f"📛 <b>Username:</b> @{user.username or 'N/A'}\n"
+                f"🆔 <b>User ID:</b> <code>{user.telegram_id}</code>\n"
+                f"\n"
+                f"💸 <b>Amount:</b> <code>{float(amount):.2f} ETB</code>\n"
+                f"📱 <b>Phone:</b> <code>{data.get('phone_number', user.phone_number or 'N/A')}</code>\n"
+                f"🆔 <b>Withdrawal ID:</b> #{withdrawal.id}\n"
+                f"📅 <b>Time:</b> {datetime.utcnow().strftime('%H:%M:%S')} UTC\n"
+                f"\n"
+                f"⚡ <b>Quick Action:</b> Click buttons below!",
+                reply_markup=admin_inline_keyboard)
 
         return jsonify({"withdrawal_id": withdrawal.id, "amount": float(amount), "status": "pending"})
     except Exception as e:
@@ -1933,12 +2160,19 @@ def approve_deposit(deposit_id):
                 user.total_deposited = Decimal(float(user.total_deposited)) + Decimal(float(deposit.amount))
                 transaction = Transaction(user_id=deposit.user_id, type='deposit', amount=deposit.amount, description=f'Deposit #{deposit.id} approved')
                 db.session.add(transaction)
-                send_telegram_message(deposit.user_id, f"✅ Deposit {float(deposit.amount):.0f} ETB approved!\nBalance: {float(user.balance):.0f} ETB")
+                send_telegram_message(deposit.user_id, 
+                    f"✅ <b>Deposit Approved!</b>\n"
+                    f"Amount: {float(deposit.amount):.0f} ETB\n"
+                    f"New Balance: {float(user.balance):.0f} ETB\n"
+                    f"\n🎮 Start playing now!")
         else:
             deposit.status = 'rejected'
             deposit.approved_at = datetime.utcnow()
             deposit.approved_by = request.telegram_user['id']
-            send_telegram_message(deposit.user_id, f"❌ Deposit {float(deposit.amount):.0f} ETB rejected.")
+            send_telegram_message(deposit.user_id, 
+                f"❌ <b>Deposit Rejected</b>\n"
+                f"Amount: {float(deposit.amount):.0f} ETB\n"
+                f"Contact admin for more info.")
         db.session.commit()
         return jsonify({"success": True, "status": deposit.status})
     except Exception as e:
@@ -1984,7 +2218,11 @@ def approve_withdrawal(withdrawal_id):
                 user.total_withdrawn = Decimal(float(user.total_withdrawn)) + Decimal(float(withdrawal.amount))
                 transaction = Transaction(user_id=withdrawal.user_id, type='withdrawal', amount=withdrawal.amount, description=f'Withdrawal #{withdrawal.id} approved')
                 db.session.add(transaction)
-                send_telegram_message(withdrawal.user_id, f"✅ Withdrawal {float(withdrawal.amount):.0f} ETB processed!\nSent to: {withdrawal.phone_number}")
+                send_telegram_message(withdrawal.user_id, 
+                    f"✅ <b>Withdrawal Approved!</b>\n"
+                    f"Amount: {float(withdrawal.amount):.0f} ETB\n"
+                    f"Phone: {withdrawal.phone_number}\n"
+                    f"\n💸 Payment will be sent shortly!")
         else:
             withdrawal.status = 'rejected'
             withdrawal.approved_at = datetime.utcnow()
@@ -1992,7 +2230,11 @@ def approve_withdrawal(withdrawal_id):
             user = User.query.filter_by(telegram_id=withdrawal.user_id).first()
             if user:
                 user.balance = Decimal(float(user.balance)) + Decimal(float(withdrawal.amount))
-            send_telegram_message(withdrawal.user_id, f"❌ Withdrawal {float(withdrawal.amount):.0f} ETB rejected. Refunded.")
+            send_telegram_message(withdrawal.user_id, 
+                f"❌ <b>Withdrawal Rejected</b>\n"
+                f"Amount: {float(withdrawal.amount):.0f} ETB\n"
+                f"Balance refunded: {float(user.balance):.0f} ETB\n"
+                f"Contact admin for more info.")
         db.session.commit()
         return jsonify({"success": True, "status": withdrawal.status})
     except Exception as e:
