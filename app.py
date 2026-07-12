@@ -181,6 +181,7 @@ class Room(db.Model):
     is_private = db.Column(db.Boolean, default=False)
     invite_code = db.Column(db.String(20), nullable=True, index=True)
     rigged_mode = db.Column(db.Boolean, default=False)
+    bot_timer_started = db.Column(db.DateTime, nullable=True)
 
     def get_called_numbers(self):
         try:
@@ -324,9 +325,7 @@ class GameSettings(db.Model):
         setting.updated_by = admin_id
         db.session.add(setting)
         db.session.commit()
-        return setting
-
-# ==================== PRE-GENERATED CARTELAS (1-500) ====================
+        return setting# ==================== PRE-GENERATED CARTELAS (1-500) ====================
 _PRE_GENERATED_CARTELAS = []
 
 def _init_pre_generated_cartelas():
@@ -956,9 +955,7 @@ class GameManager:
             finally:
                 self._cleanup_room(room_id)
 
-game_manager = GameManager()
-
-# ==================== FRONTEND ROUTES ====================
+game_manager = GameManager()# ==================== FRONTEND ROUTES ====================
 @app.route('/')
 def index():
     return send_from_directory(os.path.join(app.root_path, 'static'), 'index.html')
@@ -1434,6 +1431,138 @@ def join_room(room_id):
         logger.error(f"Join room error: {e}", exc_info=True)
         return jsonify({"error": "Failed to join"}), 500
 
+# ==================== NEW STAKE-BASED MATCHMAKING ROUTES ====================
+
+@app.route('/api/rooms/stake-counts', methods=['GET'])
+@require_telegram_auth
+@limiter.limit("30 per minute")
+def get_stake_counts():
+    """Return how many players are waiting in each stake level."""
+    stake_counts = {}
+    for stake in [10, 25, 50, 100, 250, 500]:
+        room = Room.query.filter_by(stake=Decimal(str(stake)), status='waiting').first()
+        if room:
+            count = RoomPlayer.query.filter_by(room_id=room.id).count()
+            stake_counts[stake] = count
+        else:
+            stake_counts[stake] = 0
+    return jsonify(stake_counts)
+
+
+@app.route('/api/rooms/join-by-stake', methods=['POST'])
+@require_telegram_auth
+@limiter.limit("10 per minute")
+def join_room_by_stake():
+    """Player picks a stake, joins existing room or creates new one automatically."""
+    user = request.current_user
+    data = request.get_json(silent=True) or {}
+    
+    try:
+        stake = Decimal(str(data.get('stake', 10)))
+        if stake not in [Decimal(str(s)) for s in [10, 25, 50, 100, 250, 500]]:
+            return jsonify({"error": "Invalid stake level. Choose: 10, 25, 50, 100, 250, 500"}), 400
+    except:
+        return jsonify({"error": "Invalid stake"}), 400
+
+    cartela_count = min(int(data.get('cartelas', 1)), Config.MAX_CARTELAS_PER_PLAYER)
+    if cartela_count < 1:
+        return jsonify({"error": "Min 1 cartela"}), 400
+
+    total_cost = stake * cartela_count
+
+    try:
+        user_locked = get_user_with_lock(user.telegram_id)
+        if not user_locked:
+            return jsonify({"error": "User not found"}), 404
+        if float(user_locked.balance) < float(total_cost):
+            return jsonify({"error": "Insufficient balance"}), 400
+
+        # 1. Find existing waiting room with this stake
+        room = Room.query.filter_by(stake=stake, status='waiting').first()
+
+        # 2. If no room exists, create one automatically
+        if not room:
+            room_id = generate_room_id()
+            game_id = generate_game_id()
+            
+            room = Room(
+                id=room_id,
+                game_id=game_id,
+                stake=stake,
+                created_by=user.telegram_id,
+                pot_amount=Decimal("0.00"),
+                total_cartelas=0,
+                max_players=20,
+                is_private=False,
+                invite_code=None,
+                rigged_mode=False,
+                bot_timer_started=datetime.utcnow()
+            )
+            db.session.add(room)
+            db.session.commit()
+            
+            # Start 60-second timer to fill with bots
+            game_manager.start_timer(room_id, 60)
+            
+            logger.info(f"Auto-created room {room_id} for stake {stake} ETB")
+
+        # Check if room is full
+        current_players = RoomPlayer.query.filter_by(room_id=room.id).count()
+        if current_players >= room.max_players:
+            return jsonify({"error": "Room is full. Try again."}), 400
+
+        # Check if user already in room
+        existing = RoomPlayer.query.filter_by(room_id=room.id, user_id=user.telegram_id).first()
+        if existing:
+            return jsonify({"error": "Already in this room"}), 400
+
+        # Assign random cartelas
+        selected_cartela_ids = random.sample(range(1, 501), cartela_count)
+        cartelas = get_pre_generated_cartelas_by_ids(selected_cartela_ids)
+
+        player = RoomPlayer(
+            room_id=room.id,
+            user_id=user.telegram_id,
+            is_host=(current_players == 0),
+            cartela_count=cartela_count,
+            selected_cartela_ids=json.dumps(selected_cartela_ids)
+        )
+        player.set_cartelas(cartelas)
+
+        # Deduct balance and update pot
+        user_locked.balance = Decimal(float(user_locked.balance)) - Decimal(float(total_cost))
+        user_locked.total_games_played = user_locked.total_games_played + 1
+        room.pot_amount = Decimal(float(room.pot_amount)) + Decimal(float(total_cost))
+        room.total_cartelas = room.total_cartelas + cartela_count
+
+        db.session.add(player)
+        db.session.commit()
+
+        # Check if room is now full, start game immediately
+        new_player_count = RoomPlayer.query.filter_by(room_id=room.id).count()
+        if new_player_count >= room.max_players:
+            room.status = 'calling'
+            room.started_at = datetime.utcnow()
+            db.session.commit()
+            game_manager.start_game(room.id)
+            logger.info(f"Room {room.id} full, starting game immediately")
+
+        logger.info(f"User {user.telegram_id} joined stake room {room.id} ({stake} ETB)")
+        return jsonify({
+            "room_id": room.id,
+            "stake": float(stake),
+            "cartelas": cartelas,
+            "selected_cartela_ids": selected_cartela_ids,
+            "pot": float(room.pot_amount),
+            "players": new_player_count,
+            "max_players": room.max_players
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Join by stake error: {e}", exc_info=True)
+        return jsonify({"error": "Failed to join room"}), 500
+
 @app.route('/api/cartelas/preview')
 @require_telegram_auth
 @limiter.limit("60 per minute")
@@ -1463,17 +1592,39 @@ def get_room_state(room_id):
     state = game_manager.get_room_state(room_id)
     if not state:
         return jsonify({"error": "Room not found"}), 404
+    
     player = RoomPlayer.query.filter_by(room_id=room_id, user_id=request.current_user.telegram_id).first()
     room = Room.query.get(room_id)
+    
+    # Calculate time remaining for bot fill
+    time_remaining = None
+    if room and room.status == 'waiting' and room.bot_timer_started:
+        elapsed = (datetime.utcnow() - room.bot_timer_started).total_seconds()
+        time_remaining = max(0, 60 - elapsed) * 1000  # milliseconds
+    
+    # Get winner info if game completed
+    winner = None
+    if room and room.winner_id:
+        winner_user = User.query.filter_by(telegram_id=room.winner_id).first()
+        if winner_user:
+            winner = {
+                "id": winner_user.telegram_id,
+                "name": winner_user.first_name
+            }
+    
     return jsonify({
-        **state, 
+        **state,
         "my_cartelas": player.get_cartelas() if player else [],
-        "my_marked": json.loads(player.marked_numbers) if player else [],
+        "my_marked": json.loads(player.marked_numbers) if player and player.marked_numbers else [],
         "my_selected_ids": json.loads(player.selected_cartela_ids) if player and player.selected_cartela_ids else [],
         "player_count": RoomPlayer.query.filter_by(room_id=room_id).count(),
         "max_players": room.max_players if room else 20,
         "is_private": room.is_private if room else False,
-        "rigged_mode": room.rigged_mode if room else False
+        "rigged_mode": room.rigged_mode if room else False,
+        "pot": float(room.pot_amount) if room else 0,
+        "players": RoomPlayer.query.filter_by(room_id=room_id).count() if room else 0,
+        "time_remaining": time_remaining,
+        "winner": winner
     })
 
 @app.route('/api/rooms/<room_id>/mark', methods=['POST'])
@@ -1599,9 +1750,7 @@ def get_transactions():
     user = request.current_user
     transactions = Transaction.query.filter_by(user_id=user.telegram_id).order_by(Transaction.created_at.desc()).limit(50).all()
     return jsonify([{"id": t.id, "type": t.type, "amount": float(t.amount), "description": t.description,
-        "reference_id": t.reference_id, "created_at": t.created_at.isoformat() if t.created_at else None} for t in transactions])
-
-# ==================== ADMIN ROUTES ====================
+        "reference_id": t.reference_id, "created_at": t.created_at.isoformat() if t.created_at else None} for t in transactions])# ==================== ADMIN ROUTES ====================
 @app.route('/api/admin/stats')
 @require_admin_auth
 @limiter.limit("30 per minute")
