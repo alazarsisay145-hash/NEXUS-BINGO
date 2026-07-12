@@ -67,9 +67,11 @@ class Config:
     CBE_ACCOUNT = os.environ.get("CBE_ACCOUNT", "")
     TEST_MODE_ENABLED = os.environ.get("TEST_MODE_ENABLED", "false").lower() == "true"
     TEST_MODE_SECRET = os.environ.get("TEST_MODE_SECRET", "")
-    CALL_INTERVAL_MIN = float(os.environ.get("CALL_INTERVAL_MIN", "5.0"))
-    CALL_INTERVAL_MAX = float(os.environ.get("CALL_INTERVAL_MAX", "8.0"))
-    TIMER_DELAY_SECONDS = int(os.environ.get("TIMER_DELAY_SECONDS", "45"))
+    # FAST CALLING: 2-4 seconds between numbers
+    CALL_INTERVAL_MIN = float(os.environ.get("CALL_INTERVAL_MIN", "2.0"))
+    CALL_INTERVAL_MAX = float(os.environ.get("CALL_INTERVAL_MAX", "4.0"))
+    # NO TIMER DELAY - bots join instantly
+    TIMER_DELAY_SECONDS = int(os.environ.get("TIMER_DELAY_SECONDS", "0"))
 
 config_errors = []
 if not Config.BOT_TOKEN:
@@ -162,7 +164,7 @@ class Room(db.Model):
     __tablename__ = "rooms"
     id = db.Column(db.String(10), primary_key=True)
     game_id = db.Column(db.String(20), unique=True, nullable=False, index=True)
-    stake = db.Column(db.Numeric(10, 2), nullable=False)
+    stake = db.Column(db.Numeric(10, 2), nullable=False, index=True)
     max_players = db.Column(db.Integer, default=20)
     max_cartelas = db.Column(db.Integer, default=100)
     status = db.Column(db.String(20), default="waiting")
@@ -182,6 +184,10 @@ class Room(db.Model):
     invite_code = db.Column(db.String(20), nullable=True, index=True)
     rigged_mode = db.Column(db.Boolean, default=False)
     bot_timer_started = db.Column(db.DateTime, nullable=True)
+    # NEW: Track if bingo has been claimed to prevent multiple winners
+    bingo_claimed = db.Column(db.Boolean, default=False)
+    bingo_claimed_by = db.Column(db.BigInteger, nullable=True)
+    bingo_claimed_at = db.Column(db.DateTime, nullable=True)
 
     def get_called_numbers(self):
         try:
@@ -237,21 +243,36 @@ class RoomPlayer(db.Model):
             all_marked[cartela_index] = marked
             self.marked_numbers = json.dumps(all_marked)
 
-    def check_bingo_on_cartela(self, cartela_index):
+    # NEW: Check for STRAIGHT LINE patterns only (horizontal, vertical, diagonal)
+    def check_straight_line_bingo(self, cartela_index):
+        """Check if player has a straight line bingo (row, column, or diagonal)"""
         marked = set(self.get_marked(cartela_index))
         if len(marked) < 5:
             return False
+
+        # Check horizontal rows
         for row in range(5):
             if all(row * 5 + col in marked for col in range(5)):
                 return True
+
+        # Check vertical columns
         for col in range(5):
             if all(row * 5 + col in marked for row in range(5)):
                 return True
+
+        # Check main diagonal (top-left to bottom-right)
         if all(i * 6 in marked for i in range(5)):
             return True
+
+        # Check anti-diagonal (top-right to bottom-left)
         if all(i * 4 + 4 in marked for i in range(5)):
             return True
+
         return False
+
+    # Keep old method for backwards compatibility but redirect to straight line
+    def check_bingo_on_cartela(self, cartela_index):
+        return self.check_straight_line_bingo(cartela_index)
 
 class Deposit(db.Model):
     __tablename__ = "deposits"
@@ -325,7 +346,9 @@ class GameSettings(db.Model):
         setting.updated_by = admin_id
         db.session.add(setting)
         db.session.commit()
-        return setting# ==================== PRE-GENERATED CARTELAS (1-500) ====================
+        return setting
+
+# ==================== PRE-GENERATED CARTELAS (1-500) ====================
 _PRE_GENERATED_CARTELAS = []
 
 def _init_pre_generated_cartelas():
@@ -634,9 +657,31 @@ class GameManager:
             return state
 
     def start_timer(self, room_id, delay_seconds=None):
+        """NO TIMER - bots join instantly, game starts immediately"""
         if delay_seconds is None:
             delay_seconds = Config.TIMER_DELAY_SECONDS
 
+        # If delay is 0, fill bots immediately and start game
+        if delay_seconds <= 0:
+            with app.app_context():
+                try:
+                    room = Room.query.get(room_id)
+                    if not room or room.status != "waiting":
+                        return
+                    logger.info(f"Instant bot fill for room {room_id}")
+                    BotPlayerManager.fill_room_with_bots(room_id, float(room.stake))
+
+                    room = Room.query.get(room_id)
+                    if room and room.status == "waiting":
+                        room.status = "calling"
+                        room.started_at = datetime.utcnow()
+                        db.session.commit()
+                        self.start_game(room_id)
+                except Exception as e:
+                    logger.error(f"Instant fill error for room {room_id}: {e}", exc_info=True)
+            return
+
+        # Fallback for non-zero delays (legacy)
         with self._global_lock:
             if room_id in self.timer_threads:
                 old_thread = self.timer_threads[room_id]
@@ -644,36 +689,25 @@ class GameManager:
                     logger.info(f"Timer already running for room {room_id}")
                     return
                 else:
-                    logger.info(f"Cleaning up dead timer thread for room {room_id}")
                     self.timer_threads.pop(room_id, None)
 
         def timer_callback():
             logger.info(f"Timer started for room {room_id}, waiting {delay_seconds}s")
             time.sleep(delay_seconds)
-            logger.info(f"Timer expired for room {room_id}, checking status")
+            logger.info(f"Timer expired for room {room_id}")
 
             with app.app_context():
                 try:
                     room = Room.query.get(room_id)
-                    if not room:
-                        logger.warning(f"Room {room_id} not found in timer callback")
+                    if not room or room.status != "waiting":
                         return
-                    if room.status != "waiting":
-                        logger.info(f"Room {room_id} status is {room.status}, not starting timer fill")
-                        return
-
-                    logger.info(f"Filling room {room_id} with bots")
                     BotPlayerManager.fill_room_with_bots(room_id, float(room.stake))
-
                     room = Room.query.get(room_id)
                     if room and room.status == "waiting":
-                        logger.info(f"Starting game for room {room_id} after timer")
                         room.status = "calling"
                         room.started_at = datetime.utcnow()
                         db.session.commit()
                         self.start_game(room_id)
-                    else:
-                        logger.info(f"Room {room_id} status changed to {room.status if room else 'None'}, not starting")
                 except Exception as e:
                     logger.error(f"Timer callback error for room {room_id}: {e}", exc_info=True)
                     db.session.rollback()
@@ -682,7 +716,6 @@ class GameManager:
         with self._global_lock:
             self.timer_threads[room_id] = thread
         thread.start()
-        logger.info(f"Timer thread started for room {room_id}")
 
     def start_game(self, room_id):
         with self._global_lock:
@@ -692,11 +725,10 @@ class GameManager:
                     logger.info(f"Game already running for room {room_id}")
                     return
                 else:
-                    logger.info(f"Cleaning up dead game thread for room {room_id}")
                     self.call_threads.pop(room_id, None)
                     self._active_threads.pop(room_id, None)
 
-            logger.info(f"Starting game loop for room {room_id}")
+            logger.info(f"Starting FAST game loop for room {room_id}")
 
             def call_numbers():
                 logger.info(f"Game loop thread started for room {room_id}")
@@ -716,7 +748,7 @@ class GameManager:
             thread.start()
 
     def _run_game_loop(self, room_id):
-        logger.info(f"Initializing game loop for room {room_id}")
+        logger.info(f"Initializing FAST game loop for room {room_id}")
 
         room = Room.query.get(room_id)
         if not room:
@@ -734,6 +766,7 @@ class GameManager:
         call_count = 0
 
         while available_numbers:
+            # FAST CALLING: 2-4 seconds
             sleep_time = random.uniform(Config.CALL_INTERVAL_MIN, Config.CALL_INTERVAL_MAX)
             logger.info(f"Room {room_id}: sleeping {sleep_time:.1f}s before next call")
             time.sleep(sleep_time)
@@ -746,6 +779,12 @@ class GameManager:
                 if room.status != "calling":
                     logger.info(f"Room {room_id} status changed to {room.status}, stopping game loop")
                     break
+
+                # NEW: Check if bingo was claimed by a player
+                if room.bingo_claimed:
+                    logger.info(f"Room {room_id}: Bingo claimed by {room.bingo_claimed_by}, stopping calls")
+                    self.end_game(room_id, room.bingo_claimed_by)
+                    return
 
                 with self._get_room_lock(room_id):
                     if not available_numbers:
@@ -779,12 +818,6 @@ class GameManager:
 
                     self._auto_mark_for_bots(room_id, number)
 
-                    winner = self._check_for_winner(room_id)
-                    if winner:
-                        logger.info(f"Room {room_id}: Winner found - user {winner}")
-                        self.end_game(room_id, winner)
-                        return
-
             except Exception as e:
                 logger.error(f"Error in game loop for room {room_id}: {e}", exc_info=True)
                 db.session.rollback()
@@ -792,6 +825,12 @@ class GameManager:
 
         logger.info(f"Room {room_id}: Game loop ended after {call_count} calls")
         try:
+            # Check if bingo was claimed during the loop
+            room = Room.query.get(room_id)
+            if room and room.bingo_claimed:
+                self.end_game(room_id, room.bingo_claimed_by)
+                return
+
             if rigged_mode:
                 winner = self._force_bot_winner(room_id)
             else:
@@ -830,14 +869,18 @@ class GameManager:
             return available_numbers.pop(random.randint(0, len(available_numbers) - 1))
 
     def _check_would_win(self, marked):
+        """Check straight line patterns only"""
         if len(marked) < 5:
             return False
+        # Horizontal
         for row in range(5):
             if all(row * 5 + col in marked for col in range(5)):
                 return True
+        # Vertical
         for col in range(5):
             if all(row * 5 + col in marked for row in range(5)):
                 return True
+        # Diagonal
         if all(i * 6 in marked for i in range(5)):
             return True
         if all(i * 4 + 4 in marked for i in range(5)):
@@ -860,17 +903,8 @@ class GameManager:
             db.session.rollback()
 
     def _check_for_winner(self, room_id):
-        try:
-            players = RoomPlayer.query.filter_by(room_id=room_id).all()
-            for player in players:
-                for cartela_idx in range(player.cartela_count):
-                    if player.check_bingo_on_cartela(cartela_idx):
-                        logger.info(f"Winner found: user {player.user_id} in room {room_id}")
-                        return player.user_id
-            return None
-        except Exception as e:
-            logger.error(f"Winner check error: {e}")
-            return None
+        """Legacy - now players claim bingo manually"""
+        return None
 
     def _force_bot_winner(self, room_id):
         try:
@@ -955,7 +989,63 @@ class GameManager:
             finally:
                 self._cleanup_room(room_id)
 
-game_manager = GameManager()# ==================== FRONTEND ROUTES ====================
+    # NEW: Handle bingo button claim
+    def claim_bingo(self, room_id, user_id):
+        """Player clicks BINGO button - verify and claim win"""
+        with self._get_room_lock(room_id):
+            try:
+                room = Room.query.get(room_id)
+                if not room or room.status != "calling":
+                    return {"success": False, "error": "Game not active"}
+
+                if room.bingo_claimed:
+                    return {"success": False, "error": "Bingo already claimed"}
+
+                player = RoomPlayer.query.filter_by(room_id=room_id, user_id=user_id).first()
+                if not player:
+                    return {"success": False, "error": "Not in room"}
+
+                # Verify player has a straight line bingo
+                has_bingo = False
+                winning_cartela = -1
+                for cartela_idx in range(player.cartela_count):
+                    if player.check_straight_line_bingo(cartela_idx):
+                        has_bingo = True
+                        winning_cartela = cartela_idx
+                        break
+
+                if not has_bingo:
+                    return {"success": False, "error": "No bingo! Keep playing"}
+
+                # Claim the win
+                room.bingo_claimed = True
+                room.bingo_claimed_by = user_id
+                room.bingo_claimed_at = datetime.utcnow()
+                db.session.commit()
+
+                logger.info(f"BINGO CLAIMED by user {user_id} in room {room_id}, cartela {winning_cartela}")
+
+                # Notify all players
+                user = User.query.filter_by(telegram_id=user_id).first()
+                winner_name = user.first_name if user else "Player"
+                send_telegram_message_to_all_players(room_id, 
+                    f"🎉 <b>BINGO!</b>\n\n<b>{winner_name}</b> claimed BINGO!\nGame ending...")
+
+                return {
+                    "success": True, 
+                    "message": "🎉 BINGO! You won!",
+                    "winner": True,
+                    "winning_cartela": winning_cartela
+                }
+
+            except Exception as e:
+                db.session.rollback()
+                logger.error(f"Bingo claim error: {e}", exc_info=True)
+                return {"success": False, "error": "Failed to claim bingo"}
+
+game_manager = GameManager()
+
+# ==================== FRONTEND ROUTES ====================
 @app.route('/')
 def index():
     return send_from_directory(os.path.join(app.root_path, 'static'), 'index.html')
@@ -1253,15 +1343,15 @@ def create_room():
         db.session.add(player)
         db.session.commit()
 
-        # Start timer for the room
-        game_manager.start_timer(room_id)
+        # INSTANT START: Fill with bots and start game immediately
+        game_manager.start_timer(room_id, 0)
 
         response = {
             "room": {
                 "id": room_id, 
                 "game_id": game_id, 
                 "stake": float(stake), 
-                "status": "waiting",
+                "status": "calling",  # Already calling since instant start
                 "is_private": is_private,
                 "invite_code": invite_code
             }, 
@@ -1269,7 +1359,7 @@ def create_room():
             "selected_cartela_ids": selected_cartela_ids
         }
 
-        logger.info(f"Room {room_id} created by {user.telegram_id}")
+        logger.info(f"Room {room_id} created by {user.telegram_id} - INSTANT START")
         return jsonify(response)
     except Exception as e:
         db.session.rollback()
@@ -1456,7 +1546,7 @@ def join_room_by_stake():
     """Player picks a stake, joins existing room or creates new one automatically."""
     user = request.current_user
     data = request.get_json(silent=True) or {}
-    
+
     try:
         stake = Decimal(str(data.get('stake', 10)))
         if stake not in [Decimal(str(s)) for s in [10, 25, 50, 100, 250, 500]]:
@@ -1484,7 +1574,7 @@ def join_room_by_stake():
         if not room:
             room_id = generate_room_id()
             game_id = generate_game_id()
-            
+
             room = Room(
                 id=room_id,
                 game_id=game_id,
@@ -1500,11 +1590,11 @@ def join_room_by_stake():
             )
             db.session.add(room)
             db.session.commit()
-            
-            # Start 60-second timer to fill with bots
-            game_manager.start_timer(room_id, 60)
-            
-            logger.info(f"Auto-created room {room_id} for stake {stake} ETB")
+
+            # INSTANT START - no timer delay
+            game_manager.start_timer(room_id, 0)
+
+            logger.info(f"Auto-created room {room_id} for stake {stake} ETB - INSTANT START")
 
         # Check if room is full
         current_players = RoomPlayer.query.filter_by(room_id=room.id).count()
@@ -1592,16 +1682,10 @@ def get_room_state(room_id):
     state = game_manager.get_room_state(room_id)
     if not state:
         return jsonify({"error": "Room not found"}), 404
-    
+
     player = RoomPlayer.query.filter_by(room_id=room_id, user_id=request.current_user.telegram_id).first()
     room = Room.query.get(room_id)
-    
-    # Calculate time remaining for bot fill
-    time_remaining = None
-    if room and room.status == 'waiting' and room.bot_timer_started:
-        elapsed = (datetime.utcnow() - room.bot_timer_started).total_seconds()
-        time_remaining = max(0, 60 - elapsed) * 1000  # milliseconds
-    
+
     # Get winner info if game completed
     winner = None
     if room and room.winner_id:
@@ -1611,7 +1695,7 @@ def get_room_state(room_id):
                 "id": winner_user.telegram_id,
                 "name": winner_user.first_name
             }
-    
+
     return jsonify({
         **state,
         "my_cartelas": player.get_cartelas() if player else [],
@@ -1623,8 +1707,9 @@ def get_room_state(room_id):
         "rigged_mode": room.rigged_mode if room else False,
         "pot": float(room.pot_amount) if room else 0,
         "players": RoomPlayer.query.filter_by(room_id=room_id).count() if room else 0,
-        "time_remaining": time_remaining,
-        "winner": winner
+        "winner": winner,
+        "bingo_claimed": room.bingo_claimed if room else False,
+        "bingo_claimed_by": room.bingo_claimed_by if room else None
     })
 
 @app.route('/api/rooms/<room_id>/mark', methods=['POST'])
@@ -1653,14 +1738,30 @@ def mark_number(room_id):
             return jsonify({"error": "Number not called"}), 400
         player.mark_number(cartela_idx, number_idx)
         db.session.commit()
-        if player.check_bingo_on_cartela(cartela_idx):
-            game_manager.end_game(room_id, user.telegram_id)
-            return jsonify({"marked": True, "bingo": True, "winner": True, "message": "🎉 BINGO! You won!"})
-        return jsonify({"marked": True, "number": number, "cartela_index": cartela_idx})
+
+        # Check if player now has bingo (for UI feedback only - must still click BINGO button)
+        has_bingo = player.check_straight_line_bingo(cartela_idx)
+
+        return jsonify({
+            "marked": True, 
+            "number": number, 
+            "cartela_index": cartela_idx,
+            "has_bingo": has_bingo  # Frontend can show BINGO button when true
+        })
     except Exception as e:
         db.session.rollback()
         logger.error(f"Mark error: {e}", exc_info=True)
         return jsonify({"error": "Failed to mark"}), 500
+
+# NEW: BINGO button endpoint
+@app.route('/api/rooms/<room_id>/bingo', methods=['POST'])
+@require_telegram_auth
+@limiter.limit("10 per minute")
+def claim_bingo(room_id):
+    """Player clicks the BINGO button to claim win"""
+    user = request.current_user
+    result = game_manager.claim_bingo(room_id, user.telegram_id)
+    return jsonify(result)
 
 @app.route('/api/user/profile')
 @require_telegram_auth
@@ -1750,7 +1851,9 @@ def get_transactions():
     user = request.current_user
     transactions = Transaction.query.filter_by(user_id=user.telegram_id).order_by(Transaction.created_at.desc()).limit(50).all()
     return jsonify([{"id": t.id, "type": t.type, "amount": float(t.amount), "description": t.description,
-        "reference_id": t.reference_id, "created_at": t.created_at.isoformat() if t.created_at else None} for t in transactions])# ==================== ADMIN ROUTES ====================
+        "reference_id": t.reference_id, "created_at": t.created_at.isoformat() if t.created_at else None} for t in transactions])
+
+# ==================== ADMIN ROUTES ====================
 @app.route('/api/admin/stats')
 @require_admin_auth
 @limiter.limit("30 per minute")
