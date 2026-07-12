@@ -8,6 +8,9 @@ let allCartelas = [];
 let gamePollInterval = null;
 let currentCartelaPage = 1;
 
+// Stake levels available
+const STAKE_LEVELS = [10, 25, 50, 100, 250, 500];
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     if (tg) {
@@ -16,8 +19,8 @@ document.addEventListener('DOMContentLoaded', () => {
         tg.setHeaderColor('#0f0f23');
     }
     initAuth();
-    loadRooms();
     loadProfile();
+    showStakeSelector(); // Show stake picker instead of room list
 });
 
 // Auth
@@ -48,251 +51,95 @@ function showTab(tab) {
     ['rooms', 'game', 'profile'].forEach(t => {
         document.getElementById(`tab-${t}`).classList.toggle('hidden', t !== tab);
     });
-    if (tab === 'rooms') loadRooms();
+    if (tab === 'rooms') showStakeSelector();
     if (tab === 'profile') loadProfile();
 }
 
-// Rooms
-async function loadRooms() {
+// ============================================================
+// STAKE SELECTOR (Replaces room list)
+// ============================================================
+
+function showStakeSelector() {
     const list = document.getElementById('rooms-list');
-    list.innerHTML = '<div class="loading"><div class="spinner"></div><div>Loading rooms...</div></div>';
     
-    try {
-        const res = await fetch(`${API_BASE}/api/rooms`, { headers: getAuthHeaders() });
-        const rooms = await res.json();
-        
-        if (!Array.isArray(rooms) || rooms.length === 0) {
-            list.innerHTML = '<div class="empty-state"><div class="icon">🏠</div><div>No active rooms. Create one!</div></div>';
-            return;
-        }
-        
-        list.innerHTML = rooms.map(r => `
-            <div class="room-card" onclick="joinRoom('${r.id}')">
-                <div class="room-header">
-                    <div>
-                        <span class="stake">${r.stake.toFixed(0)} ETB</span>
-                        ${r.is_private ? '<span class="badge-private">🔒 PRIVATE</span>' : ''}
-                        ${r.is_automated ? '<span class="badge-private" style="background:#ef4444;">🤖 BOTS</span>' : ''}
+    list.innerHTML = `
+        <div class="section">
+            <div class="section-title">🎯 Choose Your Stake</div>
+            <div style="font-size: 13px; color: #8892b0; margin-bottom: 16px; text-align: center;">
+                Pick a stake level. We'll find or create a room for you instantly!<br>
+                <span style="color: #38ef7d;">⏱️ 1 min timer — bots fill empty slots</span>
+            </div>
+            <div class="stake-grid">
+                ${STAKE_LEVELS.map(stake => `
+                    <div class="stake-card" onclick="joinRoomByStake(${stake})">
+                        <div class="stake-amount">${stake} ETB</div>
+                        <div class="stake-label">Quick Match</div>
+                        <div class="stake-players" id="stake-count-${stake}">Checking...</div>
                     </div>
-                    <span class="status status-${r.status}">${r.status}</span>
-                </div>
-                <div class="players">👥 ${r.players}/${r.max_players} players • 💰 ${r.pot.toFixed(0)} ETB pot</div>
-                ${r.invite_code ? `<div style="font-size:12px;color:#a78bfa;margin-top:4px;">🔑 Code: ${r.invite_code}</div>` : ''}
+                `).join('')}
             </div>
-        `).join('');
-    } catch (e) {
-        list.innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><div>Failed to load rooms</div></div>';
-    }
-}
-
-// Create Room
-let createRoomData = { selectionMode: 'random', selectedIds: [] };
-
-function openCreateRoom() {
-    selectedCartelaIds = [];
-    currentCartelaPage = 1;
-    createRoomData = { selectionMode: 'random', selectedIds: [] };
-    document.getElementById('selected-cartelas-display').textContent = '';
-    document.getElementById('btn-random').style.background = '#667eea';
-    document.getElementById('btn-manual').style.background = '#2a2a4e';
-    openModal('modal-create');
-}
-
-function toggleCartelaSelection(mode) {
-    createRoomData.selectionMode = mode;
-    const btnRandom = document.getElementById('btn-random');
-    const btnManual = document.getElementById('btn-manual');
-    
-    if (mode === 'random') {
-        btnRandom.style.background = '#667eea';
-        btnManual.style.background = '#2a2a4e';
-        selectedCartelaIds = [];
-        document.getElementById('selected-cartelas-display').textContent = '🎲 Random selection';
-    } else {
-        btnRandom.style.background = '#2a2a4e';
-        btnManual.style.background = '#667eea';
-    }
-}
-
-async function openCartelaPicker() {
-    const maxCartelas = parseInt(document.getElementById('create-cartelas').value) || 1;
-    document.getElementById('max-cartelas-allowed').textContent = maxCartelas;
-    
-    currentCartelaPage = 1;
-    if (allCartelas.length === 0) {
-        await loadCartelasBatch(1);
-    }
-    renderCartelaPicker();
-    openModal('modal-cartelas');
-}
-
-async function loadCartelasBatch(page) {
-    try {
-        const res = await fetch(`${API_BASE}/api/cartelas/preview/batch?page=${page}&per_page=50`, { headers: getAuthHeaders() });
-        const data = await res.json();
-        if (page === 1) allCartelas = [];
-        allCartelas = allCartelas.concat(data.cartelas);
-        return data;
-    } catch (e) {
-        showToast('Failed to load cartelas');
-        return { cartelas: [] };
-    }
-}
-
-function renderCartelaPicker() {
-    const selector = document.getElementById('cartela-selector');
-    const pagination = document.getElementById('cartela-pagination');
-    const maxCartelas = parseInt(document.getElementById('create-cartelas').value) || 1;
-    
-    selector.innerHTML = allCartelas.map(c => {
-        const isSelected = selectedCartelaIds.includes(c.id);
-        return `
-            <div class="cartela-option ${isSelected ? 'selected' : ''}" onclick="toggleCartela(${c.id}, ${maxCartelas})">
-                <div class="cartela-id">#${c.id}</div>
-                <div class="cartela-preview">
-                    ${c.numbers.map((n, i) => `
-                        <div class="cartela-preview-cell ${n === 0 ? 'free' : ''}">${n || '★'}</div>
-                    `).join('')}
-                </div>
-            </div>
-        `;
-    }).join('');
-    
-    pagination.innerHTML = `
-        <button class="btn btn-secondary" style="flex:1;padding:10px;" onclick="changeCartelaPage(-1)" ${currentCartelaPage <= 1 ? 'disabled' : ''}>← Prev</button>
-        <button class="btn btn-secondary" style="flex:1;padding:10px;" onclick="changeCartelaPage(1)">Next →</button>
+        </div>
     `;
     
-    document.getElementById('selected-count').textContent = `Selected: ${selectedCartelaIds.length}/${maxCartelas}`;
+    // Load player counts for each stake
+    loadStakeCounts();
 }
 
-function toggleCartela(id, max) {
-    const idx = selectedCartelaIds.indexOf(id);
-    if (idx > -1) {
-        selectedCartelaIds.splice(idx, 1);
-    } else if (selectedCartelaIds.length < max) {
-        selectedCartelaIds.push(id);
-    } else {
-        showToast(`Max ${max} cartelas allowed!`);
-        return;
-    }
-    renderCartelaPicker();
-}
-
-async function changeCartelaPage(dir) {
-    currentCartelaPage += dir;
-    if (currentCartelaPage < 1) currentCartelaPage = 1;
-    await loadCartelasBatch(currentCartelaPage);
-    renderCartelaPicker();
-}
-
-function confirmCartelaSelection() {
-    const maxCartelas = parseInt(document.getElementById('create-cartelas').value) || 1;
-    if (selectedCartelaIds.length === 0) {
-        showToast('Please select at least one cartela');
-        return;
-    }
-    if (selectedCartelaIds.length > maxCartelas) {
-        showToast(`Max ${maxCartelas} cartelas allowed!`);
-        return;
-    }
-    createRoomData.selectedIds = [...selectedCartelaIds];
-    document.getElementById('selected-cartelas-display').textContent = `🎯 Selected: #${selectedCartelaIds.join(', #')}`;
-    closeModal('modal-cartelas');
-}
-
-async function createRoom() {
-    const stake = parseFloat(document.getElementById('create-stake').value);
-    const maxPlayers = parseInt(document.getElementById('create-max-players').value);
-    const cartelas = parseInt(document.getElementById('create-cartelas').value);
-    const isPrivate = document.getElementById('create-private').checked;
-    const rigged = document.getElementById('create-rigged').checked;
-    
-    if (!stake || stake < 1) { showToast('Invalid stake'); return; }
-    if (maxPlayers < 1 || maxPlayers > 1000) { showToast('Players must be 1-1000'); return; }
-    if (cartelas < 1 || cartelas > 3) { showToast('Cartelas must be 1-3'); return; }
-    
-    const body = {
-        stake,
-        max_players: maxPlayers,
-        cartelas,
-        is_private: isPrivate,
-        rigged_mode: rigged,
-        cartela_selection: createRoomData.selectionMode,
-        selected_cartela_ids: createRoomData.selectedIds
-    };
-    
+async function loadStakeCounts() {
     try {
-        const res = await fetch(`${API_BASE}/api/rooms`, {
-            method: 'POST',
-            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        });
-        const data = await res.json();
-        if (data.error) { showToast(data.error); return; }
+        const res = await fetch(`${API_BASE}/api/rooms/stake-counts`, { headers: getAuthHeaders() });
+        const counts = await res.json();
         
-        showToast(`✅ Room created! ID: ${data.room.id}`);
-        if (data.room.invite_code) {
-            showToast(`🔑 Invite code: ${data.room.invite_code}`);
-        }
-        closeModal('modal-create');
-        enterRoom(data.room.id);
+        STAKE_LEVELS.forEach(stake => {
+            const el = document.getElementById(`stake-count-${stake}`);
+            if (el) {
+                const count = counts[stake] || 0;
+                el.textContent = count > 0 ? `👥 ${count} waiting` : '🎮 Join now';
+            }
+        });
     } catch (e) {
-        showToast('Failed to create room');
+        STAKE_LEVELS.forEach(stake => {
+            const el = document.getElementById(`stake-count-${stake}`);
+            if (el) el.textContent = '🎮 Join now';
+        });
     }
 }
 
-// Join Room
-async function joinRoom(roomId) {
+async function joinRoomByStake(stake) {
     const cartelas = prompt('How many cartelas? (1-3)', '1');
     if (!cartelas) return;
     
-    try {
-        const res = await fetch(`${API_BASE}/api/rooms/${roomId}/join`, {
-            method: 'POST',
-            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cartelas: parseInt(cartelas) })
-        });
-        const data = await res.json();
-        if (data.error) { showToast(data.error); return; }
-        
-        showToast('✅ Joined room!');
-        enterRoom(roomId);
-    } catch (e) {
-        showToast('Failed to join room');
+    const numCartelas = parseInt(cartelas);
+    if (numCartelas < 1 || numCartelas > 3) {
+        showToast('Cartelas must be 1-3');
+        return;
     }
-}
-
-// Join by Code
-function openJoinByCode() {
-    openModal('modal-join-code');
-}
-
-async function joinByCode() {
-    const code = document.getElementById('join-code').value.trim().toUpperCase();
-    const cartelas = parseInt(document.getElementById('join-code-cartelas').value) || 1;
     
-    if (!code) { showToast('Enter invite code'); return; }
+    showToast(`🎮 Finding ${stake} ETB room...`);
     
     try {
-        const res = await fetch(`${API_BASE}/api/rooms/join-by-code`, {
+        const res = await fetch(`${API_BASE}/api/rooms/join-by-stake`, {
             method: 'POST',
             headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-            body: JSON.stringify({ invite_code: code, cartelas })
+            body: JSON.stringify({ stake: stake, cartelas: numCartelas })
         });
         const data = await res.json();
-        if (data.error) { showToast(data.error); return; }
         
-        showToast('✅ Joined private room!');
-        closeModal('modal-join-code');
+        if (data.error) { 
+            showToast(data.error); 
+            return; 
+        }
+        
+        showToast(`✅ Joined ${stake} ETB room!`);
         enterRoom(data.room_id);
+        
     } catch (e) {
-        showToast('Invalid invite code');
+        showToast('Failed to join room. Try again.');
     }
 }
 
 // ============================================================
-// GAME - Updated with better polling and UI
+// GAME (Same as before, with polling)
 // ============================================================
 
 function enterRoom(roomId) {
@@ -301,13 +148,11 @@ function enterRoom(roomId) {
     document.getElementById('game-active').classList.remove('hidden');
     document.getElementById('game-inactive').classList.add('hidden');
     
-    // Clear any existing interval first
     if (gamePollInterval) {
         clearInterval(gamePollInterval);
         gamePollInterval = null;
     }
     
-    // Load immediately, then start polling every 2 seconds
     loadRoomState(roomId);
     gamePollInterval = setInterval(() => {
         if (currentRoom) {
@@ -324,7 +169,7 @@ function leaveRoom() {
     currentRoom = null;
     document.getElementById('game-active').classList.add('hidden');
     document.getElementById('game-inactive').classList.remove('hidden');
-    showTab('rooms');
+    showStakeSelector();
 }
 
 async function loadRoomState(roomId) {
@@ -359,6 +204,19 @@ async function loadRoomState(roomId) {
         statusEl.textContent = state.status;
         statusEl.className = `status status-${state.status}`;
         
+        // Show countdown timer if waiting
+        if (state.status === 'waiting' && state.time_remaining !== undefined) {
+            const timerEl = document.getElementById('game-timer');
+            if (timerEl) {
+                const seconds = Math.ceil(state.time_remaining / 1000);
+                timerEl.textContent = `⏱️ ${seconds}s until bots join`;
+                timerEl.classList.remove('hidden');
+            }
+        } else {
+            const timerEl = document.getElementById('game-timer');
+            if (timerEl) timerEl.classList.add('hidden');
+        }
+        
         // Update called numbers grid (sorted)
         const calledDiv = document.getElementById('called-numbers');
         const calledNumbers = state.called_numbers || [];
@@ -371,14 +229,14 @@ async function loadRoomState(roomId) {
         // Update cartelas
         renderMyCartelas(state.my_cartelas, state.my_marked, calledNumbers);
         
-        // Update room info if available
+        // Update room info
         if (state.pot !== undefined) {
             const potEl = document.getElementById('game-pot');
-            if (potEl) potEl.textContent = `${state.pot.toFixed(0)} ETB`;
+            if (potEl) potEl.textContent = `💰 ${state.pot.toFixed(0)} ETB`;
         }
         if (state.players !== undefined) {
             const playersEl = document.getElementById('game-players');
-            if (playersEl) playersEl.textContent = `${state.players} players`;
+            if (playersEl) playersEl.textContent = `👥 ${state.players}/${state.max_players || 20}`;
         }
         
         // Game over handling
@@ -397,7 +255,6 @@ async function loadRoomState(roomId) {
                 showToast('Game ended with no winner.');
             }
             
-            // Show a "Back to Rooms" button or auto-return after delay
             setTimeout(() => {
                 leaveRoom();
             }, 5000);
@@ -428,7 +285,6 @@ function renderMyCartelas(cartelas, marked, calledNumbers) {
                     const isCalled = calledSet.has(num) && num !== 0;
                     const isFree = num === 0;
                     
-                    // Determine cell classes
                     let classes = ['cartela-cell'];
                     if (isFree) classes.push('free');
                     if (isMarked) classes.push('marked');
@@ -455,23 +311,19 @@ function countMarked(marked, cidx) {
 }
 
 function handleCellClick(cell, roomId, cartelaIdx, numberIdx, number) {
-    // Don't allow clicking if game isn't active
     const statusEl = document.getElementById('game-status');
     if (statusEl && statusEl.textContent !== 'active') {
         showToast('Wait for the game to start!');
         return;
     }
     
-    // Don't allow clicking free space (it's auto-marked)
     if (number === 0) return;
     
-    // Don't allow clicking uncalled numbers
     if (!cell.classList.contains('called') && !cell.classList.contains('marked')) {
         showToast('That number hasn\'t been called yet!');
         return;
     }
     
-    // Toggle mark
     markNumber(roomId, cartelaIdx, numberIdx);
 }
 
@@ -492,16 +344,13 @@ async function markNumber(roomId, cartelaIdx, numberIdx) {
         if (data.winner) {
             showToast('🎉 BINGO! YOU WON!');
             confetti();
-            // Refresh state to show final board
             loadRoomState(roomId);
         } else if (data.marked) {
-            // Optimistically update UI before next poll
             const cell = document.querySelector(`[data-cartela="${cartelaIdx}"][data-index="${numberIdx}"]`);
             if (cell) {
                 cell.classList.add('marked');
                 cell.classList.remove('called');
             }
-            // Update progress counter
             const progressEl = document.querySelector(`.cartela-wrapper[data-cartela="${cartelaIdx}"] .cartela-progress`);
             if (progressEl) {
                 const current = parseInt(progressEl.textContent.split('/')[0]) || 0;
