@@ -1,4 +1,4 @@
-// NEXUS BINGO - Frontend JavaScript
+// NEXUS BINGO - Frontend JavaScript (IMPROVED)
 // Features: Voice calling, BINGO button, fast gameplay, straight line patterns
 
 const API_BASE = '';
@@ -10,12 +10,13 @@ let allCartelas = [];
 let gamePollInterval = null;
 let currentCartelaPage = 1;
 
-// NEW: Voice calling state
+// Voice calling state
 let voiceEnabled = true;
 let lastCall = null;
 let hasShownBingo = false;
+let isEliminated = false;  // NEW: Track elimination
 
-// Stake levels available
+// Stake levels
 const STAKE_LEVELS = [10, 25, 50, 100, 250, 500];
 
 // Initialize
@@ -63,25 +64,23 @@ function showTab(tab) {
 }
 
 // ============================================================
-// VOICE CALLING (NEW)
+// VOICE CALLING (FIXED)
 // ============================================================
 function speakNumber(call) {
     if (!voiceEnabled || !call) return;
-
-    // Extract letter and number: "B12" → "B 12"
     const letter = call.charAt(0);
     const number = call.slice(1);
-
-    // Cancel any ongoing speech
     speechSynthesis.cancel();
-
     const utterance = new SpeechSynthesisUtterance(`${letter} ${number}`);
     utterance.rate = 0.85;
     utterance.pitch = 1.0;
     utterance.volume = 1.0;
     utterance.lang = 'en-US';
-
     speechSynthesis.speak(utterance);
+}
+
+function stopVoice() {
+    speechSynthesis.cancel();
 }
 
 function toggleVoice() {
@@ -89,15 +88,14 @@ function toggleVoice() {
     showToast(voiceEnabled ? '🔊 Voice ON' : '🔇 Voice OFF');
     const btn = document.getElementById('voice-btn');
     if (btn) btn.textContent = voiceEnabled ? '🔊 ON' : '🔇 OFF';
+    if (!voiceEnabled) stopVoice();
 }
 
 // ============================================================
 // STAKE SELECTOR
 // ============================================================
-
 function showStakeSelector() {
     const list = document.getElementById('rooms-list');
-
     list.innerHTML = `
         <div class="section">
             <div class="section-title">🎯 Choose Your Stake</div>
@@ -115,14 +113,13 @@ function showStakeSelector() {
                 `).join('')}
             </div>
         </div>
-
         <div class="section">
             <div class="section-title">⚙️ Options</div>
             <button class="btn btn-secondary" onclick="openCreateRoom()">🏠 Create Private Room</button>
             <button class="btn btn-secondary" onclick="openJoinByCode()">🔑 Join by Code</button>
+            <button class="btn btn-secondary" id="voice-btn" onclick="toggleVoice()">🔊 Voice ON</button>
         </div>
     `;
-
     loadStakeCounts();
 }
 
@@ -130,7 +127,6 @@ async function loadStakeCounts() {
     try {
         const res = await fetch(`${API_BASE}/api/rooms/stake-counts`, { headers: getAuthHeaders() });
         const counts = await res.json();
-
         STAKE_LEVELS.forEach(stake => {
             const el = document.getElementById(`stake-count-${stake}`);
             if (el) {
@@ -149,15 +145,12 @@ async function loadStakeCounts() {
 async function joinRoomByStake(stake) {
     const cartelas = prompt('How many cartelas? (1-3)', '1');
     if (!cartelas) return;
-
     const numCartelas = parseInt(cartelas);
     if (numCartelas < 1 || numCartelas > 3) {
         showToast('Cartelas must be 1-3');
         return;
     }
-
     showToast(`🎮 Joining ${stake} ETB room...`);
-
     try {
         const res = await fetch(`${API_BASE}/api/rooms/join-by-stake`, {
             method: 'POST',
@@ -165,28 +158,26 @@ async function joinRoomByStake(stake) {
             body: JSON.stringify({ stake: stake, cartelas: numCartelas })
         });
         const data = await res.json();
-
         if (data.error) { 
             showToast(data.error); 
             return; 
         }
-
         showToast(`✅ Joined ${stake} ETB room!`);
         enterRoom(data.room_id);
-
     } catch (e) {
         showToast('Failed to join room. Try again.');
     }
 }
 
 // ============================================================
-// GAME
+// GAME (IMPROVED)
 // ============================================================
-
 function enterRoom(roomId) {
     currentRoom = roomId;
     hasShownBingo = false;
+    isEliminated = false;  // Reset
     lastCall = null;
+    stopVoice();
 
     document.querySelectorAll('.tab')[1].click();
     document.getElementById('game-active').classList.remove('hidden');
@@ -199,7 +190,7 @@ function enterRoom(roomId) {
 
     loadRoomState(roomId);
     gamePollInterval = setInterval(() => {
-        if (currentRoom) {
+        if (currentRoom && !isEliminated) {
             loadRoomState(currentRoom);
         }
     }, 2000);
@@ -210,10 +201,12 @@ function leaveRoom() {
         clearInterval(gamePollInterval);
         gamePollInterval = null;
     }
+    stopVoice();
+    hideBingoButton();
     currentRoom = null;
     hasShownBingo = false;
+    isEliminated = false;
     lastCall = null;
-    hideBingoButton();
     document.getElementById('game-active').classList.add('hidden');
     document.getElementById('game-inactive').classList.remove('hidden');
     showStakeSelector();
@@ -223,11 +216,18 @@ async function loadRoomState(roomId) {
     try {
         const res = await fetch(`${API_BASE}/api/rooms/${roomId}/state`, { headers: getAuthHeaders() });
         const state = await res.json();
+
         if (state.error) {
-            if (state.error.includes('not found') || state.error.includes('not in room')) {
+            if (state.error.includes('not found') || state.error.includes('not in room') || state.error.includes('eliminated')) {
                 leaveRoom();
-                showToast('You were removed from the room');
+                showToast(state.error);
             }
+            return;
+        }
+
+        // Check if player was eliminated by server
+        if (state.is_eliminated) {
+            handleGameOver('You were eliminated from this round.');
             return;
         }
 
@@ -241,32 +241,28 @@ async function loadRoomState(roomId) {
             currentCallEl.dataset.lastCall = newCall;
             currentCallEl.classList.add('new-call');
             setTimeout(() => currentCallEl.classList.remove('new-call'), 1000);
-
-            // NEW: Speak the number!
             speakNumber(newCall);
-
             lastCall = newCall;
         } else if (!newCall) {
             currentCallEl.textContent = '--';
             currentCallEl.dataset.lastCall = '';
         }
 
-        // Update game status
+        // Update status
         const statusEl = document.getElementById('game-status');
         statusEl.textContent = state.status;
         statusEl.className = `status status-${state.status}`;
 
-        // Update called numbers grid
+        // Update called numbers
         const calledDiv = document.getElementById('called-numbers');
         const calledNumbers = state.called_numbers || [];
         const sortedCalled = [...calledNumbers].sort((a, b) => a - b);
-
         calledDiv.innerHTML = sortedCalled.map(n => 
             `<span class="called-number">${n}</span>`
         ).join('');
 
-        // Update cartelas (with BINGO detection)
-        renderMyCartelas(state.my_cartelas, state.my_marked, calledNumbers);
+        // Update cartelas
+        renderMyCartelas(state.my_cartelas, state.my_marked, calledNumbers, state.bingo_claimed);
 
         // Update room info
         if (state.pot !== undefined) {
@@ -278,20 +274,19 @@ async function loadRoomState(roomId) {
             if (playersEl) playersEl.textContent = `👥 ${state.players}/${state.max_players || 20}`;
         }
 
-        // Check for bingo claimed (hide button)
-        if (state.bingo_claimed) {
-            hideBingoButton();
-        }
-
-        // Game over handling
+        // Game completed
         if (state.status === 'completed') {
             clearInterval(gamePollInterval);
             gamePollInterval = null;
 
             if (state.winner) {
                 if (state.winner.id === currentUser?.id) {
-                    showToast('🎉 YOU WON! Check your balance!');
+                    showToast('🎉 YOU WON! Check your balance!', 5000);
                     confetti();
+                    const victory = new SpeechSynthesisUtterance('Congratulations! You won!');
+                    victory.rate = 0.8;
+                    victory.pitch = 1.3;
+                    speechSynthesis.speak(victory);
                 } else {
                     showToast(`🏆 ${state.winner.name} won the game!`);
                 }
@@ -308,7 +303,10 @@ async function loadRoomState(roomId) {
     }
 }
 
-function renderMyCartelas(cartelas, marked, calledNumbers) {
+// ============================================================
+// CARTELA RENDERING (FIXED)
+// ============================================================
+function renderMyCartelas(cartelas, marked, calledNumbers, bingoClaimed) {
     const container = document.getElementById('my-cartelas');
     if (!cartelas || cartelas.length === 0) {
         container.innerHTML = '<div class="empty-state"><div class="icon">🎫</div><div>No cartelas yet</div></div>';
@@ -355,13 +353,13 @@ function renderMyCartelas(cartelas, marked, calledNumbers) {
         `;
     }).join('');
 
-    // NEW: Show BINGO button if any cartela has a straight line
-    if (anyHasBingo && !hasShownBingo && !gameState?.bingo_claimed) {
+    // FIXED: Show BINGO button if any cartela has straight line AND not already claimed/eliminated
+    if (anyHasBingo && !hasShownBingo && !bingoClaimed && !isEliminated) {
         showBingoButton();
     }
 }
 
-// NEW: Check straight line patterns (row, column, diagonal)
+// Check straight line patterns
 function checkStraightLine(marked) {
     if (!marked || marked.length < 5) return false;
     const m = new Set(marked);
@@ -387,14 +385,11 @@ function handleCellClick(cell, roomId, cartelaIdx, numberIdx, number) {
         showToast('Wait for the game to start!');
         return;
     }
-
     if (number === 0) return;
-
     if (!cell.classList.contains('called') && !cell.classList.contains('marked')) {
         showToast("That number hasn't been called yet!");
         return;
     }
-
     markNumber(roomId, cartelaIdx, numberIdx);
 }
 
@@ -412,7 +407,7 @@ async function markNumber(roomId, cartelaIdx, numberIdx) {
             return;
         }
 
-        // NEW: Check if server says we have bingo
+        // Server says we have bingo
         if (data.has_bingo && !hasShownBingo) {
             showBingoButton();
         }
@@ -435,10 +430,10 @@ async function markNumber(roomId, cartelaIdx, numberIdx) {
 }
 
 // ============================================================
-// BINGO BUTTON (NEW)
+// BINGO BUTTON (IMPROVED - with Game Over)
 // ============================================================
 function showBingoButton() {
-    if (hasShownBingo) return;
+    if (hasShownBingo || isEliminated) return;
     hasShownBingo = true;
 
     let btn = document.getElementById('bingo-btn');
@@ -479,16 +474,63 @@ function showBingoButton() {
 
     btn.style.display = 'block';
 
-    // Speak alert
-    const bingoAlert = new SpeechSynthesisUtterance('Bingo! Click the button now!');
-    bingoAlert.rate = 0.9;
-    bingoAlert.pitch = 1.2;
-    speechSynthesis.speak(bingoAlert);
+    // Voice alert
+    if (voiceEnabled) {
+        const bingoAlert = new SpeechSynthesisUtterance('Bingo! Click the button now!');
+        bingoAlert.rate = 0.9;
+        bingoAlert.pitch = 1.2;
+        speechSynthesis.speak(bingoAlert);
+    }
 }
 
 function hideBingoButton() {
     const btn = document.getElementById('bingo-btn');
     if (btn) btn.style.display = 'none';
+}
+
+// NEW: Game Over handler
+function handleGameOver(reason) {
+    isEliminated = true;
+    stopVoice();
+    hideBingoButton();
+    clearInterval(gamePollInterval);
+    gamePollInterval = null;
+
+    // Grey out cartelas
+    document.querySelectorAll('.cartela-cell').forEach(cell => {
+        cell.classList.add('losing');
+        cell.style.pointerEvents = 'none';
+    });
+
+    // Show game over overlay (create if not exists)
+    let overlay = document.getElementById('game-over-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'game-over-overlay';
+        overlay.className = 'modal-overlay';
+        overlay.innerHTML = `
+            <div class="modal" style="border: 2px solid #eb3349; text-align: center;">
+                <div style="font-size: 64px; margin-bottom: 16px;">💀</div>
+                <div style="font-size: 32px; font-weight: 800; color: #eb3349; margin-bottom: 16px;">GAME OVER</div>
+                <div style="color: #8892b0; margin-bottom: 24px;" id="game-over-reason"></div>
+                <button class="btn btn-primary" onclick="dismissGameOver()">Back to Lobby</button>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+    }
+
+    document.getElementById('game-over-reason').textContent = reason || 'You called BINGO but had no winning pattern!';
+    overlay.classList.add('active');
+
+    if (tg?.HapticFeedback) {
+        tg.HapticFeedback.notificationOccurred('error');
+    }
+}
+
+function dismissGameOver() {
+    const overlay = document.getElementById('game-over-overlay');
+    if (overlay) overlay.classList.remove('active');
+    leaveRoom();
 }
 
 async function claimBingo() {
@@ -499,27 +541,63 @@ async function claimBingo() {
         });
 
         const data = await res.json();
+
         if (data.success) {
+            // PLAYER WON!
             hideBingoButton();
             showToast('🎉 BINGO! YOU WON!', 5000);
 
-            // Victory speech
-            const victory = new SpeechSynthesisUtterance('Congratulations! You won!');
-            victory.rate = 0.8;
-            victory.pitch = 1.3;
-            speechSynthesis.speak(victory);
+            if (voiceEnabled) {
+                const victory = new SpeechSynthesisUtterance('Congratulations! You won!');
+                victory.rate = 0.8;
+                victory.pitch = 1.3;
+                speechSynthesis.speak(victory);
+            }
 
             confetti();
             clearInterval(gamePollInterval);
-            setTimeout(() => location.reload(), 4000);
+
+            // Show winner overlay
+            let overlay = document.getElementById('winner-overlay');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.id = 'winner-overlay';
+                overlay.className = 'modal-overlay';
+                overlay.innerHTML = `
+                    <div class="modal" style="border: 2px solid #38ef7d; text-align: center;">
+                        <div style="font-size: 64px; margin-bottom: 16px;">🏆</div>
+                        <div style="font-size: 32px; font-weight: 800; color: #38ef7d; margin-bottom: 16px;">BINGO!</div>
+                        <div style="color: #8892b0; margin-bottom: 24px;">
+                            Congratulations! You completed a winning pattern!<br>
+                            <span style="color: #38ef7d; font-size: 20px; font-weight: bold;" id="winner-prize"></span>
+                        </div>
+                        <button class="btn btn-success" onclick="dismissWinner()">Claim Prize</button>
+                    </div>
+                `;
+                document.body.appendChild(overlay);
+            }
+
+            document.getElementById('winner-prize').textContent = data.prize ? `+${data.prize} ETB` : '';
+            overlay.classList.add('active');
+
+            if (tg?.HapticFeedback) {
+                tg.HapticFeedback.notificationOccurred('success');
+            }
+
         } else {
-            showToast(data.error || 'No bingo! Keep playing!');
-            hideBingoButton();
-            hasShownBingo = false;
+            // FALSE BINGO - GAME OVER!
+            handleGameOver(data.error || 'You called BINGO without a valid pattern!');
         }
     } catch (e) {
         showToast('Failed to claim bingo');
     }
+}
+
+function dismissWinner() {
+    const overlay = document.getElementById('winner-overlay');
+    if (overlay) overlay.classList.remove('active');
+    leaveRoom();
+    loadProfile(); // Refresh balance
 }
 
 // ============================================================
@@ -528,10 +606,8 @@ async function claimBingo() {
 function openCreateRoom() {
     const stake = parseInt(prompt('Stake per cartela (ETB):', '10'));
     if (!stake || stake < 1) return;
-
     const cartelas = parseInt(prompt('Cartelas (1-3):', '1'));
     if (!cartelas || cartelas < 1 || cartelas > 3) return;
-
     const isPrivate = confirm('Make this room private?');
 
     fetch(`${API_BASE}/api/rooms`, {
@@ -554,7 +630,6 @@ function openCreateRoom() {
 function openJoinByCode() {
     const code = prompt('Enter invite code:');
     if (!code) return;
-
     const cartelas = parseInt(prompt('Cartelas (1-3):', '1')) || 1;
 
     fetch(`${API_BASE}/api/rooms/join-by-code`, {
@@ -673,11 +748,11 @@ async function requestWithdrawal() {
 function openModal(id) { document.getElementById(id).classList.add('active'); }
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
-function showToast(msg) {
+function showToast(msg, duration = 3000) {
     const toast = document.getElementById('toast');
     toast.textContent = msg;
     toast.classList.add('show');
-    setTimeout(() => toast.classList.remove('show'), 3000);
+    setTimeout(() => toast.classList.remove('show'), duration);
 }
 
 function confetti() {
@@ -697,6 +772,15 @@ function confetti() {
         setTimeout(() => el.remove(), 4000);
     }
 }
+
+// Add fall animation
+const fallStyle = document.createElement('style');
+fallStyle.textContent = `
+    @keyframes fall {
+        to { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+    }
+`;
+document.head.appendChild(fallStyle);
 
 // Close modals on overlay click
 document.querySelectorAll('.modal-overlay').forEach(overlay => {
