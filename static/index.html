@@ -82,7 +82,6 @@
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn:active { transform: scale(0.98); }
         
-        /* Stake Selector Grid */
         .stake-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -142,6 +141,7 @@
             cursor: pointer;
             transition: all 0.2s;
             border: 2px solid transparent;
+            position: relative;
         }
         .cartela-cell:hover { background: #1e3a5f; }
         .cartela-cell.marked {
@@ -154,57 +154,22 @@
         }
         .cartela-cell.called {
             border-color: #38ef7d;
-            animation: pulse 1s infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.05); }
         }
         
-        .cartela-preview {
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 2px;
-            max-width: 120px;
-            margin: 0 auto 8px;
-        }
-        .cartela-preview-cell {
-            aspect-ratio: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #16213e;
-            border-radius: 4px;
-            font-size: 9px;
-        }
-        .cartela-preview-cell.free { background: #f59e0b; }
-        
-        .cartela-selector {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 8px;
-            max-height: 400px;
-            overflow-y: auto;
-        }
-        .cartela-option {
-            background: #16213e;
+        .cartela-wrapper {
+            margin-bottom: 20px;
+            background: #1a1a2e;
             border-radius: 12px;
-            padding: 8px;
-            cursor: pointer;
-            border: 2px solid transparent;
-            transition: all 0.3s;
-            text-align: center;
+            padding: 12px;
+            border: 1px solid #2a2a4e;
         }
-        .cartela-option:hover { border-color: #667eea; }
-        .cartela-option.selected {
-            border-color: #38ef7d;
-            background: #0f3460;
-        }
-        .cartela-option .cartela-id {
-            font-size: 12px;
-            font-weight: 700;
+        .cartela-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 14px;
             color: #a78bfa;
-            margin-bottom: 4px;
         }
         
         .modal-overlay {
@@ -266,18 +231,23 @@
             color: #fff;
         }
         
-        .game-board {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
         .current-call {
             text-align: center;
             font-size: 48px;
             font-weight: 800;
             color: #f59e0b;
             text-shadow: 0 0 20px rgba(245,158,11,0.5);
+            transition: all 0.3s ease;
         }
+        .current-call.new-call {
+            animation: callPop 1s ease;
+        }
+        @keyframes callPop {
+            0% { transform: scale(1); }
+            30% { transform: scale(1.3); color: #ffd700; }
+            100% { transform: scale(1); }
+        }
+        
         .called-numbers {
             display: flex;
             flex-wrap: wrap;
@@ -285,15 +255,20 @@
             justify-content: center;
             max-height: 100px;
             overflow-y: auto;
+            margin-top: 12px;
         }
         .called-number {
             padding: 4px 8px;
             background: #16213e;
             border-radius: 6px;
             font-size: 12px;
+            animation: numberAppear 0.3s ease;
+        }
+        @keyframes numberAppear {
+            from { opacity: 0; transform: scale(0.5); }
+            to { opacity: 1; transform: scale(1); }
         }
         
-        /* Timer display */
         .game-timer {
             text-align: center;
             font-size: 14px;
@@ -356,94 +331,6 @@
         .info-label { color: #8892b0; }
         .info-value { font-weight: 600; }
 
-        /* Game Screen Enhancements */
-        #current-call {
-            transition: all 0.3s ease;
-        }
-
-        #current-call.new-call {
-            animation: callPop 1s ease;
-        }
-
-        @keyframes callPop {
-            0% { transform: scale(1); }
-            30% { transform: scale(1.3); color: #ffd700; }
-            100% { transform: scale(1); }
-        }
-
-        .cartela-wrapper {
-            margin-bottom: 20px;
-            background: #1a1a2e;
-            border-radius: 12px;
-            padding: 12px;
-            border: 1px solid #2a2a4e;
-        }
-
-        .cartela-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
-            font-size: 14px;
-            color: #a78bfa;
-        }
-
-        .cartela-progress {
-            background: #2a2a4e;
-            padding: 2px 8px;
-            border-radius: 10px;
-            font-size: 12px;
-            font-weight: bold;
-        }
-
-        .cartela-cell.called {
-            background: rgba(255, 193, 7, 0.2);
-            border-color: #ffc107;
-            color: #ffc107;
-            cursor: pointer;
-        }
-
-        .cartela-cell.called:hover {
-            background: rgba(255, 193, 7, 0.4);
-        }
-
-        .cartela-cell.marked {
-            background: #28a745;
-            color: white;
-            border-color: #1e7e34;
-            cursor: default;
-        }
-
-        .cartela-cell.marked::after {
-            content: '✓';
-            position: absolute;
-            font-size: 10px;
-            top: 2px;
-            right: 2px;
-        }
-
-        .cartela-cell {
-            position: relative;
-            transition: all 0.2s ease;
-        }
-
-        .called-number {
-            display: inline-block;
-            padding: 4px 8px;
-            margin: 2px;
-            background: #2a2a4e;
-            border-radius: 6px;
-            font-weight: bold;
-            font-size: 13px;
-            animation: numberAppear 0.3s ease;
-        }
-
-        @keyframes numberAppear {
-            from { opacity: 0; transform: scale(0.5); }
-            to { opacity: 1; transform: scale(1); }
-        }
-
-        /* Game info bar */
         .game-info-bar {
             display: flex;
             justify-content: space-between;
@@ -452,11 +339,93 @@
             font-size: 13px;
             color: #8892b0;
         }
-
         .game-info-bar span {
             background: #1a1a2e;
             padding: 4px 12px;
             border-radius: 8px;
+        }
+
+        /* ===== BINGO BUTTON ===== */
+        .bingo-btn {
+            width: 100%;
+            padding: 20px;
+            border: none;
+            border-radius: 16px;
+            font-size: 32px;
+            font-weight: 900;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin: 16px 0;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            background: linear-gradient(135deg, #ff6b6b 0%, #ffd93d 50%, #ff6b6b 100%);
+            color: #fff;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            box-shadow: 0 0 30px rgba(255, 107, 107, 0.4);
+            animation: bingoPulse 2s infinite;
+        }
+        .bingo-btn:hover { transform: scale(1.05); box-shadow: 0 0 50px rgba(255, 107, 107, 0.6); }
+        .bingo-btn:active { transform: scale(0.95); }
+        .bingo-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            animation: none;
+            box-shadow: none;
+        }
+        @keyframes bingoPulse {
+            0%, 100% { box-shadow: 0 0 30px rgba(255, 107, 107, 0.4); }
+            50% { box-shadow: 0 0 50px rgba(255, 107, 107, 0.8); }
+        }
+
+        /* ===== GAME OVER / WINNER OVERLAYS ===== */
+        .game-over-overlay, .winner-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.9);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 3000;
+            padding: 16px;
+        }
+        .game-over-overlay.active, .winner-overlay.active { display: flex; }
+        
+        .game-over-modal, .winner-modal {
+            background: #1a1a2e;
+            border-radius: 20px;
+            padding: 32px;
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+        }
+        .game-over-modal { border: 2px solid #eb3349; }
+        .winner-modal { border: 2px solid #38ef7d; }
+        
+        .game-over-title { font-size: 36px; font-weight: 800; color: #eb3349; margin-bottom: 16px; }
+        .winner-title { font-size: 36px; font-weight: 800; color: #38ef7d; margin-bottom: 16px; }
+        .game-over-emoji, .winner-emoji { font-size: 64px; margin-bottom: 16px; }
+        .game-over-message, .winner-message { font-size: 18px; color: #8892b0; margin-bottom: 24px; }
+
+        /* ===== WINNING PATTERN HIGHLIGHT ===== */
+        .cartela-cell.winning {
+            background: #38ef7d !important;
+            color: #000 !important;
+            animation: winPulse 0.5s infinite alternate;
+        }
+        @keyframes winPulse {
+            from { transform: scale(1); box-shadow: 0 0 10px #38ef7d; }
+            to { transform: scale(1.1); box-shadow: 0 0 20px #38ef7d; }
+        }
+        .cartela-cell.losing { opacity: 0.4; }
+
+        .pattern-info {
+            text-align: center;
+            padding: 8px;
+            background: rgba(102, 126, 234, 0.1);
+            border-radius: 8px;
+            margin-bottom: 12px;
+            font-size: 13px;
+            color: #a78bfa;
         }
     </style>
 </head>
@@ -475,7 +444,7 @@
             <button class="tab" onclick="showTab('profile')">👤 Profile</button>
         </div>
         
-        <!-- Rooms Tab (Now Stake Selector) -->
+        <!-- Rooms Tab -->
         <div id="tab-rooms">
             <div id="rooms-list">
                 <div class="loading">
@@ -501,6 +470,15 @@
                     <div class="called-numbers" id="called-numbers"></div>
                 </div>
                 
+                <!-- 🎉 BINGO BUTTON -->
+                <button class="bingo-btn" id="bingo-btn" onclick="callBingo()" disabled>
+                    🎉 BINGO! 🎉
+                </button>
+                
+                <div class="pattern-info">
+                    Win Pattern: Any Straight Line (Horizontal, Vertical, or Diagonal)
+                </div>
+                
                 <div class="section">
                     <div class="section-title">🎲 Your Cartelas</div>
                     <div id="my-cartelas"></div>
@@ -523,7 +501,6 @@
                     <div class="loading"><div class="spinner"></div></div>
                 </div>
             </div>
-            
             <div class="section">
                 <div class="section-title">💰 Transactions</div>
                 <button class="btn btn-success" onclick="openDeposit()">⬇️ Deposit</button>
@@ -558,9 +535,34 @@
         </div>
     </div>
     
+    <!-- Game Over Overlay -->
+    <div class="game-over-overlay" id="game-over-overlay">
+        <div class="game-over-modal">
+            <div class="game-over-emoji">💀</div>
+            <div class="game-over-title">GAME OVER</div>
+            <div class="game-over-message">
+                You called BINGO but didn't have a winning pattern!<br>
+                You've been eliminated from this round.
+            </div>
+            <button class="btn btn-primary" onclick="closeGameOver()">Back to Lobby</button>
+        </div>
+    </div>
+    
+    <!-- Winner Overlay -->
+    <div class="winner-overlay" id="winner-overlay">
+        <div class="winner-modal">
+            <div class="winner-emoji">🏆</div>
+            <div class="winner-title">BINGO!</div>
+            <div class="winner-message" id="winner-message">
+                Congratulations! You have a winning pattern!
+            </div>
+            <button class="btn btn-success" onclick="closeWinner()">Claim Prize</button>
+        </div>
+    </div>
+    
     <!-- Toast -->
     <div class="toast" id="toast"></div>
     
-    <script src="/static/app.js"></script>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
